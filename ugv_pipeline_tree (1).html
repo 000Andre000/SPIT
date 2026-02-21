@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UGV · AI Pipeline Tree</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;700;800&display=swap');
+:root{
+  --bg:#030508;--surface:#070d14;--surface2:#0b1520;--border:#0f2035;--border2:#1a3550;
+  --pre:#00cfff;--dino:#a855f7;--seg:#38bdf8;--focal:#f97316;--xent:#fb923c;
+  --nav:#22c55e;--plan:#eab308;--result:#00ffaa;--data:#ffffff;
+  --text:#7a9cb0;--bright:#d0e8f4;--dim:#2a4a60;
+  --mono:'JetBrains Mono',monospace;--display:'Syne',sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);}
+body{font-family:var(--mono);color:var(--text);display:flex;flex-direction:column;}
+body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,207,255,.007) 3px,rgba(0,207,255,.007) 4px);}
+
+/* TOPBAR */
+.topbar{height:52px;background:var(--surface);border-bottom:1px solid var(--border2);
+  display:flex;align-items:center;padding:0 16px;gap:10px;flex-shrink:0;position:relative;overflow:hidden;}
+.topbar::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,var(--pre) 20%,var(--dino) 50%,var(--seg) 70%,var(--result) 100%);opacity:.45;}
+.logo{font-family:var(--display);font-size:15px;font-weight:800;letter-spacing:3px;color:var(--bright);text-transform:uppercase;white-space:nowrap;}
+.logo span{color:var(--pre);}
+
+.model-select-wrap{display:flex;align-items:center;gap:7px;margin-left:6px;background:rgba(0,0,0,.3);border:1px solid var(--border2);border-radius:3px;padding:4px 10px;}
+.model-select-label{font-size:8px;letter-spacing:1.5px;color:var(--dim);text-transform:uppercase;white-space:nowrap;}
+.model-select{background:transparent;border:none;color:var(--pre);font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1px;padding:0 20px 0 0;cursor:pointer;outline:none;
+  -webkit-appearance:none;appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2300cfff'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 0 center;}
+.model-select option{background:#070d14;color:var(--bright);}
+
+.tb-pills{display:flex;gap:5px;}
+.pill{padding:3px 9px;font-size:8px;letter-spacing:1.5px;font-weight:700;border-radius:2px;text-transform:uppercase;border:1px solid transparent;cursor:pointer;transition:all .2s;font-family:var(--mono);}
+.pill.active{background:rgba(0,207,255,.12);border-color:var(--pre);color:var(--pre);}
+.pill:not(.active){border-color:var(--border2);color:var(--dim);}
+.pill:hover:not(.active){color:var(--text);}
+
+.tb-stats{display:flex;gap:18px;margin-left:auto;}
+.tbs{display:flex;flex-direction:column;align-items:flex-end;gap:1px;}
+.tbs-l{font-size:7px;letter-spacing:1.5px;color:var(--dim);text-transform:uppercase;}
+.tbs-v{font-size:13px;font-weight:700;line-height:1;}
+
+.run-btn{padding:6px 16px;background:rgba(0,207,255,.1);border:1px solid rgba(0,207,255,.5);color:var(--pre);font-family:var(--mono);font-size:10px;letter-spacing:2px;font-weight:700;cursor:pointer;border-radius:2px;text-transform:uppercase;transition:all .2s;white-space:nowrap;}
+.run-btn:hover{background:rgba(0,207,255,.2);}
+.run-btn.running{border-color:var(--plan);color:var(--plan);background:rgba(234,179,8,.1);}
+
+/* MAIN */
+.main{flex:1;display:grid;grid-template-columns:1fr 298px;overflow:hidden;}
+.tree-area{position:relative;overflow:hidden;}
+#treeCanvas{position:absolute;inset:0;cursor:grab;}
+#treeCanvas:active{cursor:grabbing;}
+
+/* LEGEND */
+.legend-box{position:absolute;top:12px;left:12px;background:rgba(7,13,20,.92);border:1px solid var(--border2);border-radius:3px;padding:9px 11px;backdrop-filter:blur(8px);z-index:10;}
+.leg-title{font-size:7px;letter-spacing:2px;color:var(--dim);text-transform:uppercase;margin-bottom:5px;}
+.leg-item{display:flex;align-items:center;gap:7px;margin-bottom:3px;font-size:8px;color:var(--text);}
+.leg-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+.leg-hint{margin-top:5px;padding-top:5px;border-top:1px solid var(--border);font-size:7px;color:var(--dim);line-height:1.5;}
+
+/* POPUP */
+.node-popup{position:absolute;background:var(--surface2);border:1px solid var(--border2);border-radius:4px;padding:11px 13px;width:210px;pointer-events:none;opacity:0;transition:opacity .2s;z-index:100;box-shadow:0 8px 32px rgba(0,0,0,.5);}
+.node-popup.visible{opacity:1;}
+.np-step{font-size:7px;letter-spacing:1.5px;font-weight:700;margin-bottom:3px;}
+.np-name{font-size:11px;font-weight:700;color:var(--bright);font-family:var(--display);margin-bottom:5px;}
+.np-row{display:flex;justify-content:space-between;font-size:8px;margin-bottom:2px;}
+.np-label{color:var(--dim);}
+.np-val{font-weight:700;font-size:9px;}
+.np-bar-track{width:100%;height:2px;background:var(--border);border-radius:2px;margin-top:5px;overflow:hidden;}
+.np-bar-fill{height:100%;border-radius:2px;transition:width .5s;}
+
+/* ZOOM */
+.zoom-controls{position:absolute;bottom:14px;right:14px;display:flex;flex-direction:column;gap:4px;}
+.zc-btn{width:28px;height:28px;background:var(--surface);border:1px solid var(--border2);color:var(--text);font-size:14px;cursor:pointer;border-radius:2px;display:flex;align-items:center;justify-content:center;transition:all .15s;}
+.zc-btn:hover{border-color:var(--pre);color:var(--pre);}
+
+/* RIGHT PANEL */
+.right-panel{background:var(--surface);border-left:1px solid var(--border2);display:flex;flex-direction:column;overflow:hidden;}
+.rp-header{padding:10px 13px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-shrink:0;}
+.rp-title{font-family:var(--display);font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--bright);}
+.sel-panel{padding:11px 13px;border-bottom:1px solid var(--border);flex-shrink:0;max-height:330px;overflow-y:auto;}
+.snp-empty{color:var(--dim);font-size:9px;text-align:center;padding:12px 0;letter-spacing:1px;}
+.snp-badge{display:inline-flex;align-items:center;gap:5px;padding:2px 7px;border-radius:2px;font-size:8px;font-weight:700;letter-spacing:1.5px;margin-bottom:5px;}
+.snp-name{font-family:var(--display);font-size:15px;font-weight:800;color:var(--bright);margin-bottom:3px;line-height:1.1;}
+.snp-plain{font-size:9px;color:var(--text);line-height:1.5;margin-bottom:7px;padding:5px 7px;background:rgba(255,255,255,.02);border-left:2px solid var(--border2);border-radius:1px;}
+.snp-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:7px;}
+.snp-metric{background:rgba(0,0,0,.3);border:1px solid var(--border);border-radius:2px;padding:6px 8px;}
+.snp-m-label{font-size:6px;color:var(--dim);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:2px;}
+.snp-m-val{font-size:13px;font-weight:700;line-height:1;}
+.io-label{font-size:7px;color:var(--dim);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:3px;margin-top:7px;}
+.io-desc{background:rgba(0,0,0,.3);border:1px solid var(--border);border-radius:2px;padding:5px 7px;font-size:9px;color:var(--text);font-family:var(--display);line-height:1.5;}
+
+.stats-stream{flex:1;overflow-y:auto;padding:7px 11px;display:flex;flex-direction:column;gap:3px;min-height:0;}
+.se{display:flex;gap:7px;align-items:flex-start;padding:4px 6px;border-radius:2px;border-left:2px solid transparent;animation:sIn .25s ease;font-size:8px;}
+@keyframes sIn{from{opacity:0;transform:translateX(5px)}to{opacity:1;transform:translateX(0)}}
+.se-icon{flex-shrink:0;font-size:10px;line-height:1.3;}
+.se-body{flex:1;}
+.se-step{font-size:7px;font-weight:700;letter-spacing:1px;color:var(--dim);}
+.se-main{color:var(--bright);line-height:1.4;margin-top:1px;}
+.se-sub{color:var(--dim);font-size:8px;line-height:1.3;margin-top:1px;font-family:var(--display);}
+.t-info{border-color:var(--pre);background:rgba(0,207,255,.03);}
+.t-model{border-color:var(--dino);background:rgba(168,85,247,.04);}
+.t-nav{border-color:var(--nav);background:rgba(34,197,94,.04);}
+.t-result{border-color:var(--result);background:rgba(0,255,170,.05);}
+.t-warn{border-color:var(--focal);background:rgba(249,115,22,.04);}
+
+::-webkit-scrollbar{width:3px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">UGV·<span>AI</span> PIPELINE</div>
+  <div class="model-select-wrap">
+    <span class="model-select-label">View Model</span>
+    <select class="model-select" id="model-select" onchange="onModelChange()">
+      <option value="all">◈ All Models</option>
+      <option value="xent">① Cross-Entropy (Exp 1)</option>
+      <option value="focal">② Focal Loss (Exp 2)</option>
+      <option value="dinov2">③ DINOv2 + ConvNeXt ★</option>
+      <option value="segformer">④ SegFormer</option>
+    </select>
+  </div>
+  <div class="tb-pills">
+    <div class="pill active" onclick="setLayout('top-down')">↓ TOP-DOWN</div>
+    <div class="pill" onclick="setLayout('radial')">◎ RADIAL</div>
+    <div class="pill" onclick="fitView()">⊡ FIT</div>
+  </div>
+  <div class="tb-stats">
+    <div class="tbs"><span class="tbs-l">Nodes</span><span class="tbs-v" id="hdr-nodes" style="color:var(--dino)">0</span></div>
+    <div class="tbs"><span class="tbs-l">Status</span><span class="tbs-v" id="hdr-status" style="color:var(--dim)">IDLE</span></div>
+  </div>
+  <button type="button" class="run-btn" id="run-btn" onclick="startPipeline()">▶ RUN</button>
+</div>
+
+<div class="main">
+  <div class="tree-area">
+    <canvas id="treeCanvas"></canvas>
+    <div class="legend-box">
+      <div class="leg-title">Node Types</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#fff"></div>Dataset</div>
+      <div class="leg-item"><div class="leg-dot" style="background:var(--pre)"></div>Preprocessing</div>
+      <div class="leg-item"><div class="leg-dot" style="background:var(--xent)"></div>① Cross-Entropy</div>
+      <div class="leg-item"><div class="leg-dot" style="background:var(--focal)"></div>② Focal Loss</div>
+      <div class="leg-item"><div class="leg-dot" style="background:var(--dino)"></div>③ DINOv2 + ConvNeXt ★</div>
+      <div class="leg-item"><div class="leg-dot" style="background:var(--seg)"></div>④ SegFormer</div>
+      <div class="leg-item"><div class="leg-dot" style="background:var(--nav)"></div>Collision Detection</div>
+      <div class="leg-item"><div class="leg-dot" style="background:var(--plan)"></div>A* Path Planning</div>
+      <div class="leg-item"><div class="leg-dot" style="background:var(--result)"></div>UGV Movement</div>
+      <div class="leg-hint">Scroll: zoom · Drag: pan<br>Click node: inspect<br>★ = Best performing model</div>
+    </div>
+    <div class="node-popup" id="node-popup">
+      <div class="np-step" id="np-step">NODE</div>
+      <div class="np-name" id="np-name">—</div>
+      <div class="np-row"><span class="np-label">Latency</span><span class="np-val" id="np-ms">--</span></div>
+      <div class="np-row"><span class="np-label">Metric</span><span class="np-val" id="np-conf">--</span></div>
+      <div class="np-row"><span class="np-label">Output</span><span class="np-val" id="np-shape" style="font-size:8px">--</span></div>
+      <div class="np-bar-track"><div class="np-bar-fill" id="np-bar"></div></div>
+    </div>
+    <div class="zoom-controls">
+      <button type="button" class="zc-btn" onclick="zoom(1.2)">+</button>
+      <button type="button" class="zc-btn" onclick="zoom(0.83)">−</button>
+      <button type="button" class="zc-btn" onclick="fitView()">⊡</button>
+    </div>
+  </div>
+
+  <div class="right-panel">
+    <div class="rp-header"><div class="rp-title">Node Inspector</div></div>
+    <div class="sel-panel">
+      <div class="snp-empty" id="snp-empty">← Click any node to inspect</div>
+      <div id="snp-content" style="display:none"></div>
+    </div>
+    <div class="rp-header" style="border-top:1px solid var(--border);">
+      <div class="rp-title" style="font-size:8px;">Pipeline Log</div>
+      <span style="margin-left:auto;font-size:8px;color:var(--dim);cursor:pointer;" onclick="clearStream()">CLEAR ✕</span>
+    </div>
+    <div class="stats-stream" id="stats-stream">
+      <div style="color:var(--dim);font-size:9px;text-align:center;padding:20px 0;">Select a model and press RUN</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+//  COLOURS
+// ═══════════════════════════════════════════════════════
+const C={data:'#ffffff',pre:'#00cfff',xent:'#fb923c',focal:'#f97316',dino:'#a855f7',seg:'#38bdf8',nav:'#22c55e',plan:'#eab308',result:'#00ffaa'};
+
+// ═══════════════════════════════════════════════════════
+//  NODE DEFINITIONS
+//  layer: 0=dataset 1=preprocess 2=model-branch-root
+//         3=model-internals 4=collision 5=pathplan 6=ugv
+// ═══════════════════════════════════════════════════════
+const DEFS=[
+  // ── SHARED: Dataset & Preprocessing ─────────────────
+  {id:'dataset',      group:'shared', layer:0, color:C.data,  shape:'hex',
+   label:'DESERT\nDATASET',  sublabel:'Synthetic · 10 classes',
+   metric:'10 classes', mLabel:'Classes', shapeOut:'960×540 RGB', ms:0,
+   parentId:null,
+   desc:'Synthetic digital-twin desert dataset from Duality AI. 10 semantic classes: Sky (37.64%), Landscape (24.45%), Rocks (1.20%), Dry Bushes (1.10%), Logs (0.08%) and 5 more. Highly imbalanced — rare classes are safety-critical.',
+   plain:'Raw synthetic desert images with pixel-level terrain labels.'},
+
+  {id:'brightness',   group:'shared', layer:1, color:C.pre,   shape:'rect',
+   label:'BRIGHTNESS\nNORMALISE', sublabel:'Gamma + histogram eq',
+   metric:'100%', mLabel:'Pass rate', shapeOut:'960×540 float32', ms:3,
+   parentId:'dataset',
+   desc:'Gamma and histogram normalisation to balance synthetic brightness across desert scenes. Prevents the model from learning exposure artefacts instead of actual terrain features.',
+   plain:'Fixes lighting so shadows and bright sky do not confuse the model.'},
+
+  {id:'dehazing',     group:'shared', layer:1, color:C.pre,   shape:'rect',
+   label:'DEHAZING', sublabel:'Dark-channel prior',
+   metric:'100%', mLabel:'Pass rate', shapeOut:'960×540 float32', ms:5,
+   parentId:'brightness',
+   desc:'Dark-channel prior dehazing removes atmospheric noise and haze artifacts common in synthetic desert renders. Improves edge clarity for small obstacles like logs and rocks.',
+   plain:'Removes foggy haze so small rocks and logs are clearly visible.'},
+
+  {id:'class_weight', group:'shared', layer:1, color:C.pre,   shape:'rect',
+   label:'CLASS\nWEIGHTING', sublabel:'MFB · w=median(f)/f',
+   metric:'MFB', mLabel:'Method', shapeOut:'10-dim weights', ms:1,
+   parentId:'dehazing',
+   desc:'Median Frequency Balancing: w = median(class_freq)/class_freq. Sky & Landscape get low weights; Logs (0.08%) and Rocks (1.20%) get high weights. Weights clipped at max=10 for gradient stability.',
+   plain:'Tells the model to care MORE about rare dangerous obstacles like logs and rocks.'},
+
+  {id:'rand_crop',    group:'shared', layer:1, color:C.pre,   shape:'rect',
+   label:'RANDOM\nCROP', sublabel:'Divisible by 14 · hi-res',
+   metric:'÷14', mLabel:'Patch align', shapeOut:'Cropped patch', ms:2,
+   parentId:'class_weight',
+   desc:'Random crop patches from full-resolution images during training. Crop size is divisible by 14 for DINOv2 patch-token compatibility. Forces model to learn from small obstacle regions and improves scale robustness.',
+   plain:'Randomly zooms into image regions so the model learns to spot small rocks and logs.'},
+
+  // ── MODEL BRANCH 1: Weighted Cross-Entropy ───────────
+  {id:'xent_root',    group:'xent',   layer:2, color:C.xent,  shape:'hex',
+   label:'CROSS-ENTROPY\nLOSS', sublabel:'Experiment ①',
+   metric:'~5%', mLabel:'Val mIoU', shapeOut:'[1,10,H,W]', ms:45,
+   parentId:'rand_crop',
+   desc:'Standard weighted cross-entropy: L = -Σ w_c·y_c·log(p_c). Bias toward dominant classes (Sky 37.64%, Landscape 24.45%) persisted. Small obstacles still poorly detected. Prompted the Focal Loss experiment.',
+   plain:'First attempt — weighted penalty for wrong predictions. Struggled with rare obstacles.'},
+
+  {id:'xent_enc',     group:'xent',   layer:3, color:C.xent,  shape:'rect',
+   label:'CNN\nENCODER', sublabel:'Basic backbone',
+   metric:'weak', mLabel:'Repr', shapeOut:'Feature maps', ms:30,
+   parentId:'xent_root',
+   desc:'Basic CNN encoder without pretrained weights. Lacked the semantic richness needed to distinguish 10 visually similar desert terrain classes. The backbone was identified as the primary bottleneck.',
+   plain:'Basic image reader — not powerful enough for complex desert terrain.'},
+
+  {id:'xent_out',     group:'xent',   layer:3, color:C.xent,  shape:'rect',
+   label:'CLASS MAP\n10 classes', sublabel:'Low IoU · biased to sky',
+   metric:'~5%', mLabel:'mIoU', shapeOut:'[1,10,H,W]', ms:5,
+   parentId:'xent_enc',
+   desc:'Per-pixel softmax + argmax. Very low mIoU (~5%). Heavy bias toward sky and landscape pixels. Logs, rocks and dry bushes almost never correctly detected. Proved need for stronger backbone.',
+   plain:'Pixel labels produced — very low accuracy on rare dangerous obstacles.'},
+
+  // ── MODEL BRANCH 2: Focal Loss ───────────────────────
+  {id:'focal_root',   group:'focal',  layer:2, color:C.focal, shape:'hex',
+   label:'FOCAL\nLOSS', sublabel:'Experiment ② · γ focusing',
+   metric:'5.11%', mLabel:'Val mIoU', shapeOut:'[1,10,H,W]', ms:42,
+   parentId:'rand_crop',
+   desc:'FL = -α(1−pt)^γ·log(pt). Down-weights easy pixels (sky), focuses training on hard misclassifications. Train Loss=1.4084, Val Loss=1.3919. IoU=0.0511, Dice=0.0871, PixAcc=0.0955. Improved boundary learning but backbone still insufficient.',
+   plain:'Focal Loss focuses on hard-to-classify pixels. Better than cross-entropy but still limited.'},
+
+  {id:'focal_enc',    group:'focal',  layer:3, color:C.focal, shape:'rect',
+   label:'CNN\nENCODER', sublabel:'Same backbone — bottleneck',
+   metric:'weak', mLabel:'Repr', shapeOut:'Feature maps', ms:28,
+   parentId:'focal_root',
+   desc:'Same basic CNN encoder as Experiment 1. Despite better loss dynamics from Focal Loss, the encoder still lacked depth for challenging off-road terrain. Confirmed need for pretrained backbone.',
+   plain:'Same basic image reader — the loss improved but the backbone was still the problem.'},
+
+  {id:'focal_out',    group:'focal',  layer:3, color:C.focal, shape:'rect',
+   label:'VAL METRICS\nIoU 0.051', sublabel:'Dice 0.087 · PixAcc 0.095',
+   metric:'5.11%', mLabel:'mIoU', shapeOut:'[1,10,H,W]', ms:5,
+   parentId:'focal_enc',
+   desc:'Train: Loss=1.4084, IoU=0.0527, Dice=0.0903, PixAcc=0.0935. Val: Loss=1.3919, IoU=0.0511, Dice=0.0871, PixAcc=0.0955. Low IoU conclusively showed the backbone was the bottleneck → upgraded to DINOv2.',
+   plain:'The numbers confirmed the backbone was the real problem — not the loss function.'},
+
+  // ── MODEL BRANCH 3: DINOv2 + ConvNeXt (WINNING) ─────
+  {id:'dino_root',    group:'dinov2', layer:2, color:C.dino,  shape:'hex',
+   label:'DINOv2\nBACKBONE ★', sublabel:'ViT-S/14 · 21M · FROZEN',
+   metric:'94%', mLabel:'Confidence', shapeOut:'[1,646,384]', ms:42,
+   parentId:'rand_crop',
+   desc:'Pretrained DINOv2 Vision Transformer (ViT-S/14) used as a FROZEN feature extractor. Self-supervised training gives rich patch-level semantic embeddings encoding texture, geometry, and scene context without segmentation supervision. Freezing prevents overfitting and reduces training cost.',
+   plain:'Powerful pretrained AI brain — understands terrain textures without extra training.'},
+
+  {id:'dino_out',     group:'dinov2', layer:3, color:C.dino,  shape:'rect',
+   label:'PIXEL\nCLASS MAP', sublabel:'Best results · rare class IoU ↑',
+   metric:'high', mLabel:'mIoU', shapeOut:'[1,10,266,476]', ms:4,
+   parentId:'convnext',
+   desc:'Full-resolution 10-class pixel label map. Best performance across all models — especially on rare safety-critical classes (logs, rocks, dry bushes) thanks to DINOv2\'s strong general visual representations.',
+   plain:'Every pixel labelled with a terrain type — best accuracy of all four models.'},
+
+  // ── MODEL BRANCH 4: SegFormer ─────────────────────────
+  {id:'seg_root',     group:'segformer', layer:2, color:C.seg, shape:'hex',
+   label:'SegFormer', sublabel:'MiT encoder · MLP decoder',
+   metric:'86%', mLabel:'Confidence', shapeOut:'[1,10,H,W]', ms:38,
+   parentId:'rand_crop',
+   desc:'End-to-end transformer segmentation model. Mix Transformer (MiT) encoder extracts hierarchical features at 4 scales without positional encoding — more robust to resolution variation. Lightweight all-MLP decoder fuses multi-scale features efficiently. Strong accuracy with fast inference.',
+   plain:'An all-in-one fast model that reads the image at 4 different zoom levels simultaneously.'},
+
+  {id:'mit_enc',      group:'segformer', layer:3, color:C.seg, shape:'rect',
+   label:'MiT\nENCODER', sublabel:'4-scale · no pos encoding',
+   metric:'4 scales', mLabel:'Feature scales', shapeOut:'H/4,H/8,H/16,H/32', ms:22,
+   parentId:'seg_root',
+   desc:'Mix Transformer hierarchical encoder: features at 1/4, 1/8, 1/16, 1/32 resolution. No positional encoding makes it robust to varying image sizes common in real-world off-road deployments.',
+   plain:'Reads the image at 4 zoom levels — captures both big patterns and fine obstacle details.'},
+
+  {id:'mlp_dec',      group:'segformer', layer:3, color:C.seg, shape:'rect',
+   label:'MLP\nDECODER', sublabel:'Lightweight fusion · fast',
+   metric:'fast', mLabel:'Inference', shapeOut:'[1,10,H,W]', ms:10,
+   parentId:'mit_enc',
+   desc:'All-MLP decoder fuses 4 encoder feature scales into a unified segmentation map. Significantly lighter than UPerNet or FPN decoders while maintaining competitive semantic accuracy.',
+   plain:'Combines all zoom-level features quickly into one final segmentation map.'},
+
+  {id:'seg_out',      group:'segformer', layer:3, color:C.seg, shape:'rect',
+   label:'PIXEL\nCLASS MAP', sublabel:'Competitive · scale-robust',
+   metric:'86%', mLabel:'Confidence', shapeOut:'[1,10,H,W]', ms:6,
+   parentId:'mlp_dec',
+   desc:'Full-resolution 10-class pixel label map. Competitive accuracy with faster inference than DINOv2+ConvNeXt. Strong robustness to scale variation makes it suitable for varying terrain distances.',
+   plain:'Every pixel labelled — fast and accurate alternative to the DINOv2 path.'},
+
+  // ── CONVERGENCE: Collision Detection ─────────────────
+  {id:'collision',    group:'shared', layer:4, color:C.nav,   shape:'hex',
+   label:'COLLISION\nDETECTION', sublabel:'All models converge here',
+   metric:'4-neigh', mLabel:'Check method', shapeOut:'Risk: LOW/MED/HIGH', ms:6,
+   parentId:null,  // parents wired dynamically (model outputs)
+   desc:'All four model outputs feed into this stage. The semantic class map is analysed: Logs and Rocks are flagged as BLOCKED (infinite traversal cost). 4-neighbour proximity scan checks each path candidate against obstacle cells. Outputs risk level: LOW / MED / HIGH.',
+   plain:'All models feed here — checks which terrain areas are dangerous for the UGV to enter.'},
+
+  // ── PATH PLANNING ─────────────────────────────────────
+  {id:'cost_map',     group:'shared', layer:5, color:C.nav,   shape:'rect',
+   label:'COST MAP\nTerrain→Cost', sublabel:'Traversability grid',
+   metric:'48×30', mLabel:'Grid size', shapeOut:'48×30 float grid', ms:5,
+   parentId:'collision',
+   desc:'Maps 10 semantic class IDs to movement costs: Sky=∞, Log=∞, Rock=high, DryBush=medium, Landscape=low. Coarse 48×30 grid derived from full-res class map by max-pooling cost within each cell.',
+   plain:'Creates a difficulty grid — green for easy terrain, red for blocked obstacles.'},
+
+  {id:'astar',        group:'shared', layer:5, color:C.plan,  shape:'hex',
+   label:'A* PATH\nPLANNING', sublabel:'f(n) = g(n) + h(n)',
+   metric:'Manhattan', mLabel:'Heuristic', shapeOut:'Path: N waypoints', ms:28,
+   parentId:'cost_map',
+   desc:'A* graph search on the 48×30 cost grid with Manhattan heuristic h(n). Finds minimum-cost path from UGV current position to goal. Avoids BLOCKED cells (logs, rocks). Produces ordered list of waypoints.',
+   plain:'Finds the safest, lowest-cost route through the terrain to the destination.'},
+
+  {id:'waypoint',     group:'shared', layer:5, color:C.plan,  shape:'rect',
+   label:'NEXT\nWAYPOINT', sublabel:'Path[0] → heading + speed',
+   metric:'30 Hz', mLabel:'Update rate', shapeOut:'(x,y) + heading°', ms:2,
+   parentId:'astar',
+   desc:'First node on the A* path issued as the next waypoint. Includes: target (x,y), heading angle in degrees, recommended speed percentage. Sent to motor controller. Path replanned every frame at up to 30Hz.',
+   plain:'Picks the very next position the UGV should move to and at what speed.'},
+
+  // ── UGV MOVEMENT ─────────────────────────────────────
+  {id:'ugv_move',     group:'shared', layer:6, color:C.result,shape:'hex',
+   label:'UGV\nMOVEMENT', sublabel:'PROCEED / HALT · 30Hz',
+   metric:'30 Hz', mLabel:'Control rate', shapeOut:'Motor CMD', ms:2,
+   parentId:'waypoint',
+   desc:'Final motor command sent to UGV motor controller: heading angle, speed %, PROCEED/HALT flag. Full pipeline runs at up to 30Hz for real-time off-road navigation. Emergency HALT triggered automatically if HIGH risk detected from collision stage.',
+   plain:'The UGV gets its final instructions — direction, speed, and whether it is safe to proceed.'},
+];
+
+// model output node IDs that wire into collision
+const MODEL_OUTS={xent:'xent_out',focal:'focal_out',dinov2:'dino_out',segformer:'seg_out'};
+const MODEL_GROUPS=['xent','focal','dinov2','segformer'];
+const SHARED_PRE_IDS=['dataset','brightness','dehazing','class_weight','rand_crop'];
+const SHARED_POST_IDS=['collision','cost_map','astar','waypoint','ugv_move'];
+const MODEL_NODE_IDS={
+  xent:    ['xent_root','xent_enc','xent_out'],
+  focal:   ['focal_root','focal_enc','focal_out'],
+  dinov2:  ['dino_root','dino_attn','convnext','dino_out'],
+  segformer:['seg_root','mit_enc','mlp_dec','seg_out'],
+};
+
+function getVisibleIds(model){
+  if(model==='all'){
+    return[...SHARED_PRE_IDS,...MODEL_NODE_IDS.xent,...MODEL_NODE_IDS.focal,...MODEL_NODE_IDS.dinov2,...MODEL_NODE_IDS.segformer,...SHARED_POST_IDS];
+  }
+  return[...SHARED_PRE_IDS,...MODEL_NODE_IDS[model],...SHARED_POST_IDS];
+}
+
+// ═══════════════════════════════════════════════════════
+//  RUNTIME STATE
+// ═══════════════════════════════════════════════════════
+const canvas=document.getElementById('treeCanvas');
+const ctx=canvas.getContext('2d');
+let nodes=[],edges=[];
+let pan={x:0,y:0},scale=1;
+let dragging=false,dragStart={x:0,y:0},panStart={x:0,y:0};
+let selectedNode=null,hoveredNode=null;
+let pipelineRunning=false,layout='top-down';
+let activeModel='all';
+
+function getDef(id){return DEFS.find(d=>d.id===id);}
+
+// ═══════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════
+function init(){
+  resizeCanvas();
+  window.addEventListener('resize',()=>{resizeCanvas();relayout();});
+  setupInteraction();
+  buildStaticTree();
+  render();
+}
+function resizeCanvas(){canvas.width=canvas.parentElement.clientWidth;canvas.height=canvas.parentElement.clientHeight;}
+
+function buildStaticTree(){
+  nodes=[];edges=[];
+  const ids=getVisibleIds(activeModel);
+  ids.forEach(id=>{
+    const def=getDef(id);if(!def)return;
+    const n=makeNode(def);n.visible=true;n.progress=1;
+    nodes.push(n);
+  });
+  wireEdges();
+  relayout();
+  fitView();
+  document.getElementById('hdr-nodes').textContent=nodes.length;
+}
+
+function makeNode(def){
+  return{id:def.id,label:def.label,sublabel:def.sublabel,layer:def.layer,
+    color:def.color,shape:def.shape,group:def.group,
+    ms:def.ms,metric:def.metric,mLabel:def.mLabel,shapeOut:def.shapeOut,
+    desc:def.desc,plain:def.plain,parentId:def.parentId,
+    x:canvas.width/2,y:60,targetX:canvas.width/2,targetY:60,
+    visible:false,appearing:false,progress:0,active:false,done:false,pulse:0};
+}
+
+function wireEdges(){
+  edges=[];
+  nodes.forEach(n=>{
+    if(n.id==='collision')return;
+    const def=getDef(n.id);
+    if(def&&def.parentId&&nodes.find(p=>p.id===def.parentId)){
+      edges.push({fromId:def.parentId,toId:n.id,color:def.color,progress:1,active:false});
+    }
+  });
+  // model outputs → collision
+  const collNode=nodes.find(n=>n.id==='collision');
+  if(!collNode)return;
+  const activeModels=activeModel==='all'?MODEL_GROUPS:[activeModel];
+  activeModels.forEach(m=>{
+    const outId=MODEL_OUTS[m];
+    if(nodes.find(n=>n.id===outId)){
+      edges.push({fromId:outId,toId:'collision',color:getDef(outId)?.color||C.nav,progress:1,active:false});
+    }
+  });
+}
+
+function onModelChange(){
+  activeModel=document.getElementById('model-select').value;
+  pipelineRunning=false;
+  buildStaticTree();
+  document.getElementById('hdr-status').textContent='IDLE';
+  document.getElementById('hdr-status').style.color='var(--dim)';
+  document.getElementById('run-btn').textContent='▶ RUN';
+  document.getElementById('run-btn').classList.remove('running');
+  const sel=document.getElementById('model-select');
+  streamLog('info','MODEL',`Switched to: ${sel.selectedOptions[0].text}`,'Press RUN to animate the pipeline');
+}
+
+// ═══════════════════════════════════════════════════════
+//  PIPELINE ANIMATION
+// ═══════════════════════════════════════════════════════
+async function startPipeline(){
+  if(pipelineRunning)return;
+  pipelineRunning=true;
+  document.getElementById('run-btn').classList.add('running');
+  document.getElementById('run-btn').textContent='⟳ RUNNING...';
+  document.getElementById('hdr-status').style.color='var(--plan)';
+  document.getElementById('hdr-status').textContent='RUNNING';
+  nodes=[];edges=[];clearStream();
+  const sel=document.getElementById('model-select');
+  streamLog('info','SYS',`Pipeline: ${sel.selectedOptions[0].text}`,'Starting animation…');
+
+  const ids=getVisibleIds(activeModel);
+  // Spawn all nodes
+  for(let i=0;i<ids.length;i++){
+    if(!pipelineRunning)break;
+    if(i>0)await sleep(380+Math.random()*80);
+    spawnNode(ids[i]);
+    document.getElementById('hdr-nodes').textContent=nodes.length;
+    relayout();
+  }
+  // Activate each node
+  for(let i=0;i<nodes.length;i++){
+    if(!pipelineRunning)break;
+    const n=nodes[i];n.active=true;
+    const ms=Math.round((n.ms||0)*(0.8+Math.random()*0.4));
+    n.ms=ms;
+    const t=n.id==='ugv_move'?'result':n.group==='shared'?'nav':n.group==='dinov2'?'model':'warn';
+    streamLog(t,n.id.toUpperCase().slice(0,10),
+      `${n.label.replace('\n',' ')}${ms?` · ${ms}ms`:''}`,n.plain);
+    await sleep(Math.max(50,ms*0.5+55));
+    n.active=false;n.done=true;
+  }
+  document.getElementById('hdr-status').style.color='var(--result)';
+  document.getElementById('hdr-status').textContent='COMPLETE';
+  document.getElementById('run-btn').classList.remove('running');
+  document.getElementById('run-btn').textContent='▶ RUN AGAIN';
+  const h=(Math.random()*60-30).toFixed(1);
+  const sp=[100,60,30][Math.floor(Math.random()*3)];
+  streamLog('result','UGV CMD',`heading:${h>0?'+':''}${h}° speed:${sp}% → PROCEED`,`UGV moving ${Math.abs(h)}° ${h>0?'right':'left'} at ${sp}% speed`);
+  pipelineRunning=false;
+}
+
+function spawnNode(id){
+  const def=getDef(id);if(!def)return;
+  let parent=nodes.find(n=>n.id===def.parentId);
+  if(id==='collision'&&!parent){
+    // find any model output node as visual parent anchor
+    const activeModels=activeModel==='all'?MODEL_GROUPS:[activeModel];
+    parent=nodes.find(n=>n.id===MODEL_OUTS[activeModels[Math.floor(activeModels.length/2)]]);
+  }
+  const px=parent?parent.x:canvas.width/2;
+  const py=parent?parent.y:60;
+  const n=makeNode(def);n.x=px;n.y=py+70;n.targetX=px;n.targetY=py+70;n.appearing=true;n.progress=0;
+  nodes.push(n);
+  // edges
+  if(id==='collision'){
+    const activeModels=activeModel==='all'?MODEL_GROUPS:[activeModel];
+    activeModels.forEach(m=>{
+      const outId=MODEL_OUTS[m];
+      if(nodes.find(nn=>nn.id===outId))
+        edges.push({fromId:outId,toId:'collision',color:getDef(outId)?.color||C.nav,progress:0,active:true});
+    });
+  } else if(parent){
+    edges.push({fromId:def.parentId,toId:id,color:def.color,progress:0,active:true});
+  }
+  streamLog('info','SPAWN',`${def.label.replace('\n',' ')} · layer ${def.layer}`,def.plain);
+}
+
+// ═══════════════════════════════════════════════════════
+//  LAYOUT
+// ═══════════════════════════════════════════════════════
+function relayout(){if(layout==='radial')radialLayout();else topDownLayout();}
+
+function topDownLayout(){
+  const W=canvas.width,H=canvas.height;
+  const layers={};
+  nodes.forEach(n=>{if(!layers[n.layer])layers[n.layer]=[];layers[n.layer].push(n);});
+  const numL=Object.keys(layers).length||1;
+  const levelH=Math.min(115,(H-80)/numL);
+
+  // model column centres
+  const presentModels=MODEL_GROUPS.filter(m=>nodes.some(n=>n.group===m&&n.layer===2));
+  const numCols=presentModels.length;
+  const colSpacing=Math.min(200,(W-80)/(numCols+0.5));
+  const colStartX=(W-colSpacing*(numCols-1))/2;
+  const modelColX={};
+  presentModels.forEach((m,i)=>{modelColX[m]=colStartX+i*colSpacing;});
+
+  Object.keys(layers).sort((a,b)=>a-b).forEach((lv,li)=>{
+    const lvi=parseInt(lv);
+    const group=layers[lv];
+    if(lvi===2||lvi===3){
+      // Arrange by model group column
+      const byGroup={};
+      group.forEach(n=>{if(!byGroup[n.group])byGroup[n.group]=[];byGroup[n.group].push(n);});
+      Object.entries(byGroup).forEach(([m,ns])=>{
+        const cx=modelColX[m]??W/2;
+        ns.forEach((n,ni)=>{n.targetX=cx+(ni-(ns.length-1)/2)*8;n.targetY=70+li*levelH+ni*2;});
+      });
+    } else {
+      // Standard spread
+      const spacing=Math.min(190,(W-60)/(group.length+0.5));
+      const startX=(W-spacing*(group.length-1))/2;
+      group.forEach((n,gi)=>{n.targetX=startX+gi*spacing;n.targetY=70+li*levelH;});
+    }
+  });
+}
+
+function radialLayout(){
+  const cx=canvas.width/2,cy=canvas.height/2;
+  const layers={};
+  nodes.forEach(n=>{if(!layers[n.layer])layers[n.layer]=[];layers[n.layer].push(n);});
+  const maxL=Math.max(...Object.keys(layers).map(Number));
+  const maxR=Math.min(canvas.width,canvas.height)*0.43;
+  Object.keys(layers).sort((a,b)=>a-b).forEach(lv=>{
+    const r=(parseInt(lv)/(maxL||1))*maxR;
+    const grp=layers[lv];
+    grp.forEach((n,gi)=>{
+      const a=(gi/grp.length)*Math.PI*2-Math.PI/2;
+      n.targetX=cx+Math.cos(a)*r;n.targetY=cy+Math.sin(a)*r;
+    });
+  });
+}
+
+function setLayout(l){
+  layout=l;
+  document.querySelectorAll('.pill').forEach(p=>p.classList.toggle('active',p.textContent.toLowerCase().includes(l.split('-')[0])));
+  relayout();
+}
+
+function fitView(){
+  if(!nodes.length){pan={x:0,y:0};scale=1;return;}
+  const xs=nodes.map(n=>n.targetX||n.x),ys=nodes.map(n=>n.targetY||n.y);
+  const minX=Math.min(...xs)-80,maxX=Math.max(...xs)+80;
+  const minY=Math.min(...ys)-60,maxY=Math.max(...ys)+60;
+  const W=canvas.width,H=canvas.height;
+  scale=Math.min((W-40)/(maxX-minX||1),(H-40)/(maxY-minY||1),1.6);
+  pan.x=W/2-(minX+maxX)/2*scale;pan.y=H/2-(minY+maxY)/2*scale;
+}
+
+// ═══════════════════════════════════════════════════════
+//  RENDER
+// ═══════════════════════════════════════════════════════
+const NW=100,NH=44,NR=33;
+
+function render(){
+  const W=canvas.width,H=canvas.height;
+  ctx.clearRect(0,0,W,H);
+  // grid
+  ctx.save();ctx.strokeStyle='rgba(15,32,53,0.5)';ctx.lineWidth=0.5;
+  const gs=40*scale,ox=pan.x%gs,oy=pan.y%gs;
+  for(let x=ox;x<W;x+=gs){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+  for(let y=oy;y<H;y+=gs){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+  ctx.restore();
+
+  ctx.save();ctx.translate(pan.x,pan.y);ctx.scale(scale,scale);
+
+  nodes.forEach(n=>{
+    n.x+=((n.targetX||n.x)-n.x)*0.11;n.y+=((n.targetY||n.y)-n.y)*0.11;
+    if(n.appearing){n.progress=Math.min(1,n.progress+0.055);if(n.progress>=1){n.appearing=false;n.visible=true;}}
+    else n.visible=true;
+    if(n.active)n.pulse=(n.pulse+0.07)%(Math.PI*2);
+  });
+  edges.forEach(e=>{if(e.active&&e.progress<1)e.progress=Math.min(1,e.progress+0.045);});
+
+  // convergence zone
+  const coll=nodes.find(n=>n.id==='collision');
+  if(coll&&coll.visible){
+    ctx.save();
+    ctx.strokeStyle='rgba(34,197,94,0.12)';ctx.lineWidth=1/scale;ctx.setLineDash([5/scale,4/scale]);
+    ctx.fillStyle='rgba(34,197,94,0.025)';
+    const zw=160,zh=250;
+    ctx.beginPath();ctx.roundRect(coll.x-zw/2,coll.y-50,zw,zh,8);ctx.fill();ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle='rgba(34,197,94,0.3)';
+    ctx.font=`600 ${7/scale}px 'JetBrains Mono'`;
+    ctx.textAlign='center';
+    ctx.fillText('▼ CONVERGENCE ▼',coll.x,coll.y-58);
+    ctx.restore();
+  }
+
+  edges.forEach(e=>drawEdge(e));
+  nodes.forEach(n=>drawNode(n));
+  ctx.restore();
+  requestAnimationFrame(render);
+}
+
+function drawEdge(e){
+  const fr=nodes.find(n=>n.id===e.fromId),to=nodes.find(n=>n.id===e.toId);
+  if(!fr||!to||!fr.visible)return;
+  const x1=fr.x,y1=fr.y,x2=to.x,y2=to.y;
+  const my=(y1+y2)/2;
+  const t=e.progress;
+  ctx.save();
+  ctx.strokeStyle=e.color+'50';ctx.lineWidth=1.5/scale;ctx.setLineDash([4/scale,3/scale]);
+  if(t<1){
+    ctx.beginPath();pBez(x1,y1,x1,my,x2,my,x2,y2,t);ctx.stroke();
+  } else {
+    ctx.beginPath();ctx.moveTo(x1,y1);ctx.bezierCurveTo(x1,my,x2,my,x2,y2);ctx.stroke();
+    const pt=((Date.now()/1300)%1);
+    const px=bz(x1,x1,x2,x2,pt),py=bz(y1,my,my,y2,pt);
+    ctx.setLineDash([]);ctx.fillStyle=e.color;ctx.shadowColor=e.color;ctx.shadowBlur=5/scale;
+    ctx.beginPath();ctx.arc(px,py,2.5/scale,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;
+  }
+  ctx.setLineDash([]);ctx.restore();
+}
+function pBez(x1,y1,cx1,cy1,cx2,cy2,x2,y2,t){
+  ctx.moveTo(x1,y1);const s=20;
+  for(let i=1;i<=Math.round(s*t);i++){const u=i/s;ctx.lineTo(bz(x1,cx1,cx2,x2,u),bz(y1,cy1,cy2,y2,u));}
+}
+function bz(p0,p1,p2,p3,t){return(1-t)**3*p0+3*(1-t)**2*t*p1+3*(1-t)*t**2*p2+t**3*p3;}
+
+function drawNode(n){
+  if(!n.visible&&!n.appearing)return;
+  const alpha=n.appearing?n.progress:1;
+  ctx.save();ctx.globalAlpha=alpha;ctx.translate(n.x,n.y);
+  const sa=n.appearing?(0.35+n.progress*0.65):1;ctx.scale(sa,sa);
+  const isSel=selectedNode?.id===n.id,isHov=hoveredNode?.id===n.id,isHex=n.shape==='hex';
+  const col=n.color,w=NW/2,h=NH/2,r=NR;
+
+  if(n.active||isSel){ctx.shadowColor=n.active?'#ffcc00':col;ctx.shadowBlur=n.active?(12+Math.sin(n.pulse)*5)/scale:8/scale;}
+  else if(n.done){ctx.shadowColor=col;ctx.shadowBlur=5/scale;}
+
+  if(isHex){
+    hexPath(0,0,r);
+    ctx.fillStyle=n.active?'rgba(255,204,0,.12)':n.done?col+'14':'#060c13';ctx.fill();
+    ctx.strokeStyle=n.active?'#ffcc00':isSel?'#fff':col;
+    ctx.lineWidth=(n.active||isSel)?2/scale:1.5/scale;
+    hexPath(0,0,r);ctx.stroke();
+    if(n.id==='ugv_move'){
+      ctx.strokeStyle=col+'25';ctx.lineWidth=0.5/scale;
+      hexPath(0,0,r+9);ctx.stroke();hexPath(0,0,r+18);ctx.stroke();
+    }
+    if(n.id==='collision'){
+      // pulse ring
+      const pr=r*(1+Math.sin(Date.now()/400)*0.12);
+      ctx.strokeStyle=col+'30';ctx.lineWidth=0.5/scale;hexPath(0,0,pr);ctx.stroke();
+    }
+  } else {
+    ctx.beginPath();ctx.roundRect(-w,-h,w*2,h*2,4);
+    ctx.fillStyle=n.active?'rgba(255,204,0,.07)':n.done?col+'0e':'#060c13';ctx.fill();
+    ctx.strokeStyle=n.active?'#ffcc00':isSel?'#fff':col+'88';
+    ctx.lineWidth=(n.active||isSel)?2/scale:1/scale;ctx.stroke();
+  }
+  ctx.shadowBlur=0;
+
+  // status dot
+  if(n.active||n.done){
+    const dx=isHex?r*0.7:w-3/scale, dy=isHex?-r*0.7:-h+3/scale;
+    ctx.beginPath();ctx.arc(dx,dy,3.5/scale,0,Math.PI*2);
+    ctx.fillStyle=n.active?'#ffcc00':col;
+    if(n.active){ctx.shadowColor='#ffcc00';ctx.shadowBlur=6/scale;}
+    ctx.fill();ctx.shadowBlur=0;
+  }
+
+  // label
+  const lines=n.label.split('\n');
+  ctx.fillStyle=n.active?'#ffee88':n.done?col:(isHov?col:col+'bb');
+  ctx.font=`700 ${isHex?10:9}px 'JetBrains Mono'`;
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  const lh=isHex?12:10;
+  lines.forEach((l,i)=>{ctx.fillText(l,0,(i-(lines.length-1)/2)*lh);});
+
+  // sublabel
+  const bot=isHex?r:h;
+  if(!isHex&&n.sublabel&&scale>0.5){
+    ctx.fillStyle=col+'40';ctx.font=`400 7px 'JetBrains Mono'`;ctx.fillText(n.sublabel,0,bot-6/scale);
+  }
+
+  // ms badge
+  if(n.done&&n.ms>0&&scale>0.38){
+    ctx.fillStyle='rgba(0,0,0,.8)';ctx.beginPath();ctx.roundRect(-19/scale,bot,38/scale,13/scale,2/scale);ctx.fill();
+    ctx.strokeStyle=col+'45';ctx.lineWidth=0.5/scale;ctx.stroke();
+    ctx.fillStyle=col;ctx.font=`700 8px 'JetBrains Mono'`;ctx.fillText(`${n.ms}ms`,0,bot+7/scale);
+  }
+
+  // active pulse ring
+  if(n.active){
+    const pr=(isHex?r:Math.max(w,h))*(1+Math.sin(n.pulse)*0.2);
+    ctx.beginPath();ctx.arc(0,0,pr,0,Math.PI*2);
+    ctx.strokeStyle=`rgba(255,204,0,${0.12+0.08*Math.sin(n.pulse)})`;ctx.lineWidth=1/scale;ctx.stroke();
+  }
+
+  // winning star badge
+  if(n.group==='dinov2'&&n.layer===2&&scale>0.45){
+    ctx.fillStyle='#fde047';ctx.font=`bold ${10/scale}px sans-serif`;
+    ctx.textAlign='right';ctx.textBaseline='top';ctx.fillText('★',r-2/scale,-r+2/scale);
+  }
+
+  ctx.restore();
+}
+function hexPath(cx,cy,r){
+  ctx.beginPath();
+  for(let i=0;i<6;i++){const a=i*Math.PI/3-Math.PI/6;ctx.lineTo(cx+r*Math.cos(a),cy+r*Math.sin(a));}
+  ctx.closePath();
+}
+
+// ═══════════════════════════════════════════════════════
+//  INTERACTION
+// ═══════════════════════════════════════════════════════
+function setupInteraction(){
+  canvas.addEventListener('mousedown',e=>{dragging=true;dragStart={x:e.clientX,y:e.clientY};panStart={...pan};});
+  canvas.addEventListener('mousemove',e=>{
+    if(dragging){pan.x=panStart.x+(e.clientX-dragStart.x);pan.y=panStart.y+(e.clientY-dragStart.y);return;}
+    const rect=canvas.getBoundingClientRect();
+    const {wx,wy}=s2w(e.clientX-rect.left,e.clientY-rect.top);
+    hoveredNode=hitTest(wx,wy);
+    const pop=document.getElementById('node-popup');
+    if(hoveredNode){
+      const n=hoveredNode;
+      pop.style.left=(e.clientX-rect.left+14)+'px';pop.style.top=(e.clientY-rect.top-20)+'px';pop.classList.add('visible');
+      document.getElementById('np-step').textContent=`LAYER ${n.layer} · ${n.group?.toUpperCase()||'SHARED'}`;
+      document.getElementById('np-step').style.color=n.color;
+      document.getElementById('np-name').textContent=n.label.replace('\n',' ');
+      document.getElementById('np-ms').textContent=n.done&&n.ms?n.ms+'ms':'--';document.getElementById('np-ms').style.color=n.color;
+      document.getElementById('np-conf').textContent=n.metric||'--';
+      document.getElementById('np-shape').textContent=n.shapeOut||'--';
+      document.getElementById('np-bar').style.background=n.color;
+      document.getElementById('np-bar').style.width=(n.done?78:0)+'%';
+    } else pop.classList.remove('visible');
+  });
+  canvas.addEventListener('mouseup',e=>{
+    if(!dragging||(Math.abs(e.clientX-dragStart.x)<4&&Math.abs(e.clientY-dragStart.y)<4)){
+      const rect=canvas.getBoundingClientRect();
+      const {wx,wy}=s2w(e.clientX-rect.left,e.clientY-rect.top);
+      const h=hitTest(wx,wy);if(h)selectNode(h);
+    }
+    dragging=false;
+  });
+  canvas.addEventListener('wheel',e=>{
+    e.preventDefault();const f=e.deltaY<0?1.1:0.91;
+    const rect=canvas.getBoundingClientRect();const mx=e.clientX-rect.left,my=e.clientY-rect.top;
+    pan.x=mx-(mx-pan.x)*f;pan.y=my-(my-pan.y)*f;scale=Math.max(0.1,Math.min(4,scale*f));
+  },{passive:false});
+}
+
+function s2w(sx,sy){return{wx:(sx-pan.x)/scale,wy:(sy-pan.y)/scale};}
+function hitTest(wx,wy){
+  for(let i=nodes.length-1;i>=0;i--){
+    const n=nodes[i];if(!n.visible)continue;
+    const r=n.shape==='hex'?NR+6:Math.max(NW/2,NH/2)+4;
+    if(Math.hypot(wx-n.x,wy-n.y)<r)return n;
+  }return null;
+}
+
+function selectNode(n){selectedNode=n;renderPanel(n);}
+
+function renderPanel(n){
+  document.getElementById('snp-empty').style.display='none';
+  const c=document.getElementById('snp-content');c.style.display='block';
+  const winBadge=n.group==='dinov2'?'<span style="color:var(--plan)"> ★ BEST MODEL</span>':'';
+  c.innerHTML=`
+    <div class="snp-badge" style="background:${n.color}18;border:1px solid ${n.color}40;color:${n.color};">
+      ${n.group?.toUpperCase()||'SHARED'} · LAYER ${n.layer}${winBadge}
+    </div>
+    <div class="snp-name">${n.label.replace('\n',' ')}</div>
+    <div class="snp-plain">${n.plain}</div>
+    <div class="snp-grid">
+      <div class="snp-metric"><div class="snp-m-label">Latency</div><div class="snp-m-val" style="color:${n.color}">${n.done&&n.ms?n.ms+'ms':'--'}</div></div>
+      <div class="snp-metric"><div class="snp-m-label">${n.mLabel||'Metric'}</div><div class="snp-m-val" style="color:${n.color}">${n.metric||'--'}</div></div>
+      <div class="snp-metric" style="grid-column:span 2"><div class="snp-m-label">Output Shape</div><div class="snp-m-val" style="color:var(--pre);font-size:10px">${n.shapeOut||'--'}</div></div>
+    </div>
+    <div class="io-label">Technical Detail</div>
+    <div class="io-desc">${n.desc}</div>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════
+//  STREAM
+// ═══════════════════════════════════════════════════════
+function streamLog(type,step,main,sub){
+  const el=document.getElementById('stats-stream');
+  if(el.children.length===1&&el.children[0].textContent.includes('RUN'))el.innerHTML='';
+  const icons={info:'ℹ',model:'◈',nav:'◉',result:'★',warn:'⚠'};
+  const d=document.createElement('div');d.className=`se t-${type}`;
+  d.innerHTML=`<div class="se-icon">${icons[type]||'·'}</div><div class="se-body"><div class="se-step">${step}</div><div class="se-main">${main}</div>${sub?`<div class="se-sub">${sub}</div>`:''}</div>`;
+  el.appendChild(d);while(el.children.length>120)el.removeChild(el.firstChild);el.scrollTop=el.scrollHeight;
+}
+function clearStream(){document.getElementById('stats-stream').innerHTML='';}
+function zoom(f){const cx=canvas.width/2,cy=canvas.height/2;pan.x=cx-(cx-pan.x)*f;pan.y=cy-(cy-pan.y)*f;scale=Math.max(0.1,Math.min(4,scale*f));}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+
+init();
+</script>
+</body>
+</html>
