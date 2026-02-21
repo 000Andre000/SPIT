@@ -623,6 +623,88 @@ body::after {
   letter-spacing: 1px;
 }
 
+.global-loading-dialog {
+  position: fixed;
+  inset: 0;
+  background: rgba(3,5,8,.6);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 10001;
+}
+.global-loading-dialog.visible { display: flex; }
+.global-loading-card {
+  min-width: 280px;
+  max-width: 380px;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 16px 18px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.45);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.global-loading-title {
+  font-size: 10px;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
+  color: var(--result-col);
+  font-weight: 700;
+}
+.global-loading-sub {
+  font-size: 8px;
+  letter-spacing: 1px;
+  color: var(--text);
+  text-align: center;
+}
+
+.fixed-video-dock {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  width: 360px;
+  height: 228px;
+  background: rgba(7,13,20,.94);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  overflow: hidden;
+  z-index: 9000;
+  box-shadow: 0 10px 28px rgba(0,0,0,.45);
+  display: flex;
+  flex-direction: column;
+}
+.fixed-video-header {
+  height: 28px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  flex-shrink: 0;
+  background: rgba(0,0,0,.25);
+}
+.fixed-video-title {
+  font-size: 8px;
+  letter-spacing: 1.4px;
+  color: var(--result-col);
+  text-transform: uppercase;
+  font-weight: 700;
+}
+.fixed-video-state {
+  font-size: 7px;
+  letter-spacing: 1px;
+  color: var(--dim);
+  text-transform: uppercase;
+}
+.fixed-video-media {
+  flex: 1;
+  width: 100%;
+  background: #000;
+  object-fit: contain;
+}
+
 /* Download button */
 .vp-download-btn {
   display: none;
@@ -810,6 +892,22 @@ body::after {
     </div>
     <!-- end video panel -->
 
+  </div>
+</div>
+
+<div class="fixed-video-dock" id="fixed-video-dock">
+  <div class="fixed-video-header">
+    <div class="fixed-video-title">Video Preview</div>
+    <div class="fixed-video-state" id="fixed-video-state">No file</div>
+  </div>
+  <video id="fixed-video-player" class="fixed-video-media" controls playsinline muted></video>
+</div>
+
+<div class="global-loading-dialog" id="global-loading-dialog">
+  <div class="global-loading-card">
+    <div class="vp-spinner"></div>
+    <div class="global-loading-title" id="global-loading-title">Processing...</div>
+    <div class="global-loading-sub" id="global-loading-sub">Please wait while the video is processed</div>
   </div>
 </div>
 
@@ -1368,6 +1466,24 @@ function zoom(f) {
 // ════════════════════════════════════════════════════════════
 let selectedFile = null;
 let resultBlobUrl = null;
+let uploadPreviewUrl = null;
+
+function updateFixedVideoState(text) {
+  const stateEl = document.getElementById('fixed-video-state');
+  if (stateEl) stateEl.textContent = text;
+}
+
+function setFixedVideoSource(url, stateText, tryPlay = false) {
+  const fixedVideo = document.getElementById('fixed-video-player');
+  if (!fixedVideo) return;
+  fixedVideo.pause();
+  fixedVideo.src = url || '';
+  fixedVideo.load();
+  updateFixedVideoState(stateText || 'Ready');
+  if (tryPlay && url) {
+    fixedVideo.play().catch(() => {});
+  }
+}
 
 function setupDropZone() {
   const dz = document.getElementById('drop-zone');
@@ -1396,6 +1512,14 @@ function setVideoFile(file) {
     URL.revokeObjectURL(resultBlobUrl);
     resultBlobUrl = null;
   }
+
+  if (uploadPreviewUrl) {
+    URL.revokeObjectURL(uploadPreviewUrl);
+    uploadPreviewUrl = null;
+  }
+
+  uploadPreviewUrl = URL.createObjectURL(file);
+  setFixedVideoSource(uploadPreviewUrl, 'Uploaded video', true);
   
   selectedFile = file;
   const info = document.getElementById('vp-file-info');
@@ -1436,6 +1560,15 @@ function setProgress(pct) {
   document.getElementById('vp-progress-fill').style.width = pct + '%';
 }
 
+function setGlobalLoading(visible, title, subtitle) {
+  const dialog = document.getElementById('global-loading-dialog');
+  const titleEl = document.getElementById('global-loading-title');
+  const subEl = document.getElementById('global-loading-sub');
+  if (titleEl && title) titleEl.textContent = title;
+  if (subEl && subtitle) subEl.textContent = subtitle;
+  if (dialog) dialog.classList.toggle('visible', !!visible);
+}
+
 async function sendFile() {
   const fileInput = document.getElementById('file-input');
   const endpointInput = document.getElementById('vp-endpoint');
@@ -1449,8 +1582,14 @@ async function sendFile() {
   const progressFill = document.getElementById('vp-progress-fill');
   const loadingText = document.querySelector('.vp-loading-text');
   const loadingSub = document.getElementById('vp-loading-sub');
+  const imagePlayer = document.getElementById('pred-img');
+  const fileToSend = selectedFile || fileInput.files[0];
+  const requestId = (window.crypto && window.crypto.randomUUID)
+    ? window.crypto.randomUUID()
+    : ('req_' + Date.now() + '_' + Math.floor(Math.random() * 1000000));
+  let isRequestActive = true;
 
-  if (!fileInput.files[0]) return;
+  if (!fileToSend) return;
 
   // Reset & Show UI State
   predictBtn.disabled = true;
@@ -1459,107 +1598,245 @@ async function sendFile() {
   loadingOverlay.classList.add('visible');
   resultArea.classList.add('visible');
   videoPlayer.style.display = 'none';
-  document.getElementById('pred-img').style.display = 'none';
+  imagePlayer.style.display = 'none';
+  downloadBtn.classList.remove('visible');
   badge.textContent = 'UPLOADING';
   badge.classList.add('processing');
-  loadingText.textContent = 'Uploading video...';
+  loadingText.textContent = 'Uploading...';
   loadingSub.textContent = 'Sending to server';
+  setGlobalLoading(true, 'Uploading...', 'Sending video to backend');
+  updateFixedVideoState('Uploading');
 
   const formData = new FormData();
-  formData.append("file", fileInput.files[0]);
+  formData.append("file", fileToSend);
+
+  const progressUrl = (() => {
+    try {
+      const endpointUrl = new URL(endpointInput.value, window.location.href);
+      return `${endpointUrl.origin}/predict/progress/${encodeURIComponent(requestId)}`;
+    } catch (_) {
+      return '';
+    }
+  })();
 
   try {
-    // Send file to backend
-    const xhr = new XMLHttpRequest();
+    const xhr = await new Promise((resolve, reject) => {
+      const req = new XMLHttpRequest();
+      let processingInterval = null;
+      let progressPoller = null;
+      let inProcessingState = false;
 
-    // Track upload progress
-    xhr.upload.addEventListener("progress", (e) => {
-      if (e.lengthComputable) {
-        const percent = Math.round((e.loaded / e.total) * 30); // 0-30% for upload
-        progressFill.style.width = percent + '%';
-      }
-    });
+      const stopProgressPolling = () => {
+        if (progressPoller) {
+          clearInterval(progressPoller);
+          progressPoller = null;
+        }
+      };
 
-    xhr.onload = async function() {
-      if (xhr.status === 200) {
-        // Upload done, now processing
+      const pollProgress = async () => {
+        if (!isRequestActive) return;
+        if (!progressUrl) return;
+        try {
+          const response = await fetch(progressUrl, { cache: 'no-store' });
+          if (!isRequestActive) return;
+          if (!response.ok) return;
+          const progressData = await response.json();
+          if (!isRequestActive) return;
+          const percent = Number(progressData.percent || 0);
+          const frame = Number(progressData.frame || 0);
+          const total = Number(progressData.total_frames || 0);
+
+          if (total > 0) {
+            const text = `Frame ${frame}/${total} (${percent}%)`;
+            loadingSub.textContent = text;
+            setGlobalLoading(true, 'Processing...', text);
+          } else if (progressData.message) {
+            loadingSub.textContent = progressData.message;
+            setGlobalLoading(true, 'Processing...', progressData.message);
+          }
+
+          if (percent > 0) {
+            const mapped = Math.min(95, 30 + Math.round(percent * 0.65));
+            progressFill.style.width = mapped + '%';
+          }
+        } catch (_) {}
+      };
+
+      const enterProcessingState = () => {
+        if (!isRequestActive) return;
+        if (inProcessingState) return;
+        inProcessingState = true;
         progressFill.style.width = '30%';
         badge.textContent = 'PROCESSING';
         loadingText.textContent = 'Processing...';
         loadingSub.textContent = 'AI is analyzing frames';
-
-        // Simulate progress updates every 2 seconds
-        const progressInterval = setInterval(() => {
-          const current = parseInt(progressFill.style.width);
+        setGlobalLoading(true, 'Processing...', 'AI is segmenting video frames');
+        updateFixedVideoState('Processing');
+        processingInterval = setInterval(() => {
+          const current = parseFloat(progressFill.style.width) || 30;
           if (current < 95) {
-            progressFill.style.width = (current + Math.random() * 20) + '%';
+            const next = Math.min(95, current + (Math.random() * 8 + 2));
+            progressFill.style.width = next + '%';
           }
-        }, 2000);
+        }, 1200);
+        pollProgress();
+        progressPoller = setInterval(pollProgress, 800);
+      };
 
-        try {
-          // Create blob and download
-          const videoBlob = new Blob([xhr.response], { type: 'video/mp4' });
-          resultBlobUrl = URL.createObjectURL(videoBlob);
-
-          clearInterval(progressInterval);
-          progressFill.style.width = '100%';
-
-          // Set the video source
-          videoPlayer.src = resultBlobUrl;
-
-          // Wait for video to be ready
-          const onCanPlay = () => {
-            // Hide loading overlay once video is ready
-            loadingOverlay.classList.remove('visible');
-            progressBar.classList.remove('visible');
-            badge.textContent = 'READY';
-            badge.classList.remove('processing');
-
-            // Show video and play
-            videoPlayer.style.display = 'block';
-            videoPlayer.play().catch(err => console.log('Auto-play prevented:', err));
-
-            // Remove listener
-            videoPlayer.removeEventListener('canplay', onCanPlay);
-          };
-
-          videoPlayer.addEventListener('canplay', onCanPlay);
-
-          // Set download link
-          downloadBtn.href = resultBlobUrl;
-          downloadBtn.download = 'segmentation_result.mp4';
-          downloadBtn.classList.add('visible');
-
-          // Load the video
-          videoPlayer.load();
-
-        } catch (err) {
-          clearInterval(progressInterval);
-          throw err;
+      req.upload.addEventListener("progress", (e) => {
+        if (e.lengthComputable) {
+          const percent = Math.round((e.loaded / e.total) * 30);
+          progressFill.style.width = percent + '%';
         }
-      } else {
-        throw new Error('Server error: ' + xhr.statusText);
-      }
-    };
+      });
 
-    xhr.onerror = () => {
-      throw new Error('Network error. Ensure FastAPI server is running at ' + endpointInput.value);
-    };
+      req.upload.addEventListener("load", () => {
+        enterProcessingState();
+      });
 
-    xhr.onabort = () => {
-      throw new Error('Request aborted');
-    };
+      req.onreadystatechange = () => {
+        if (req.readyState === 2) {
+          enterProcessingState();
+        }
+      };
 
-    xhr.open("POST", endpointInput.value);
-    xhr.responseType = 'blob';
-    xhr.timeout = 600000; // 10 minute timeout
-    xhr.send(formData);
+      req.onload = () => {
+        isRequestActive = false;
+        if (processingInterval) clearInterval(processingInterval);
+        stopProgressPolling();
+        resolve(req);
+      };
+
+      req.onerror = () => {
+        isRequestActive = false;
+        if (processingInterval) clearInterval(processingInterval);
+        stopProgressPolling();
+        reject(new Error('Network error. Ensure FastAPI server is running at ' + endpointInput.value));
+      };
+
+      req.onabort = () => {
+        isRequestActive = false;
+        if (processingInterval) clearInterval(processingInterval);
+        stopProgressPolling();
+        reject(new Error('Request aborted'));
+      };
+
+      req.ontimeout = () => {
+        isRequestActive = false;
+        if (processingInterval) clearInterval(processingInterval);
+        stopProgressPolling();
+        reject(new Error('Request timed out while waiting for processing to finish'));
+      };
+
+      req.open("POST", endpointInput.value);
+      req.setRequestHeader('X-Request-ID', requestId);
+      req.responseType = 'blob';
+      req.timeout = 600000;
+      req.send(formData);
+    });
+
+    if (xhr.status < 200 || xhr.status >= 300) {
+      throw new Error('Server error: ' + xhr.status + ' ' + (xhr.statusText || 'Request failed'));
+    }
+
+    const responseType = (xhr.getResponseHeader('content-type') || '').toLowerCase();
+    const responseBlob = xhr.response;
+
+    if (!responseType.includes('video/')) {
+      const errorText = await responseBlob.text();
+      let message = errorText || 'Server returned an invalid response';
+      try {
+        const parsed = JSON.parse(errorText);
+        message = parsed.detail || parsed.error || message;
+      } catch (_) {}
+      throw new Error(message);
+    }
+
+    if (resultBlobUrl) {
+      URL.revokeObjectURL(resultBlobUrl);
+      resultBlobUrl = null;
+    }
+
+    resultBlobUrl = URL.createObjectURL(responseBlob);
+    progressFill.style.width = '100%';
+    videoPlayer.src = resultBlobUrl;
+    setFixedVideoSource(resultBlobUrl, 'Processed output', true);
+
+    loadingOverlay.classList.remove('visible');
+    progressBar.classList.remove('visible');
+    badge.textContent = 'READY';
+    badge.classList.remove('processing');
+    setGlobalLoading(false);
+
+    downloadBtn.href = resultBlobUrl;
+    downloadBtn.download = 'segmentation_result.mp4';
+    downloadBtn.classList.add('visible');
+
+    const previewReady = await new Promise((resolve) => {
+      let settled = false;
+      const cleanup = () => {
+        videoPlayer.removeEventListener('loadedmetadata', onVideoReady);
+        videoPlayer.removeEventListener('loadeddata', onVideoReady);
+        videoPlayer.removeEventListener('canplay', onCanPlay);
+        videoPlayer.removeEventListener('canplaythrough', onCanPlay);
+        videoPlayer.removeEventListener('error', onVideoError);
+        if (readinessMonitor) clearInterval(readinessMonitor);
+      };
+      const finish = (ok) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(ok);
+      };
+      const onVideoReady = () => finish(true);
+      const onCanPlay = () => {
+        finish(true);
+      };
+      const onVideoError = () => {
+        finish(false);
+      };
+
+      const readinessMonitor = setInterval(() => {
+        if (videoPlayer.readyState >= 2 && videoPlayer.videoWidth > 0) {
+          finish(true);
+        }
+      }, 250);
+
+      videoPlayer.addEventListener('loadedmetadata', onVideoReady);
+      videoPlayer.addEventListener('loadeddata', onVideoReady);
+      videoPlayer.addEventListener('canplay', onCanPlay);
+      videoPlayer.addEventListener('canplaythrough', onCanPlay);
+      videoPlayer.addEventListener('error', onVideoError);
+      videoPlayer.load();
+
+      setTimeout(() => {
+        finish(false);
+      }, 10000);
+    });
+
+    if (previewReady) {
+      videoPlayer.style.display = 'block';
+      videoPlayer.play().catch(err => console.log('Auto-play prevented:', err));
+      setFixedVideoSource(resultBlobUrl, 'Processed output', true);
+      updateFixedVideoState('Processed output');
+      streamLog('ok', 'VID', 'Result ready', 'Processing finished. Showing processed video preview.');
+    } else {
+      videoPlayer.style.display = 'none';
+      updateFixedVideoState('Processed output (download)');
+      streamLog('warn', 'VID', 'Preview unavailable', 'Processing finished. Use DOWNLOAD RESULT to open the processed video.');
+    }
+
+    predictBtn.disabled = false;
 
   } catch (error) {
+    isRequestActive = false;
     console.error('Error:', error);
     badge.textContent = 'ERROR';
+    badge.classList.remove('processing');
     loadingText.textContent = 'Error occurred';
     loadingSub.textContent = error.message;
+    setGlobalLoading(false);
+    updateFixedVideoState('Error');
     
     setTimeout(() => {
       loadingOverlay.classList.remove('visible');

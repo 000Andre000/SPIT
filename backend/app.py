@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, HTTPException, Header
 from fastapi.responses import FileResponse, StreamingResponse
 import torch
 import torch.nn as nn
@@ -11,7 +11,9 @@ import shutil
 import os
 import uuid
 import json
+import subprocess
 from io import BytesIO
+from pathlib import Path
 
 app = FastAPI(title="Video Segmentation API")
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,11 +27,19 @@ app.add_middleware(
 )
 
 # ================= SETTINGS =================
-MODEL_PATH = r"C:\Users\hp\Desktop\ai_FRONTEND\backend\models\randomCrop_shaun.pth"
+BASE_DIR = Path(__file__).resolve().parent
+MODEL_FILENAME = "randomCrop_shaun.pth"
+MODEL_CANDIDATES = [
+    BASE_DIR / "models" / MODEL_FILENAME,
+    BASE_DIR.parent / "models" / MODEL_FILENAME,
+]
+MODEL_PATH = next((path for path in MODEL_CANDIDATES if path.exists()), MODEL_CANDIDATES[0])
 ALPHA = 0.5  # transparency overlay
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", DEVICE)
+
+JOB_PROGRESS = {}
 
 # ================= SEGMENTATION HEAD =================
 class SegmentationHeadConvNeXt(nn.Module):
@@ -78,7 +88,10 @@ model = SegmentationHeadConvNeXt(
     tokenH=h // 14
 ).to(DEVICE)
 
-checkpoint = torch.load(MODEL_PATH, map_location=DEVICE)
+if not MODEL_PATH.exists():
+    raise FileNotFoundError(f"Model file not found at: {MODEL_PATH}")
+
+checkpoint = torch.load(str(MODEL_PATH), map_location=DEVICE)
 state_dict = checkpoint.get("model_state_dict", checkpoint)
 clean_state_dict = {k.replace("_orig_mod.", "") if k.startswith("_orig_mod.") else k: v
                     for k, v in state_dict.items()}
@@ -114,15 +127,65 @@ def mask_to_color(mask):
         color_mask[mask == i] = color_palette[i]
     return color_mask
 
+
+def create_video_writer(output_path: str, fps: int, frame_size: tuple[int, int]):
+    codec_candidates = ["avc1", "H264", "mp4v"]
+    for codec in codec_candidates:
+        fourcc = cv2.VideoWriter_fourcc(*codec)
+        writer = cv2.VideoWriter(output_path, fourcc, fps, frame_size)
+        if writer.isOpened():
+            print(f"Using output codec: {codec}")
+            return writer, codec
+        writer.release()
+    return None, None
+
+
+def transcode_to_browser_mp4(input_path: str, output_path: str):
+    ffmpeg_bin = shutil.which("ffmpeg")
+    if not ffmpeg_bin:
+        return False, "ffmpeg not found"
+
+    cmd = [
+        ffmpeg_bin,
+        "-y",
+        "-i", input_path,
+        "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        output_path,
+    ]
+    try:
+        completed = subprocess.run(cmd, capture_output=True, text=True)
+        if completed.returncode != 0:
+            return False, completed.stderr.strip()[:400]
+        if not os.path.exists(output_path) or os.path.getsize(output_path) <= 0:
+            return False, "transcoded file missing or empty"
+        return True, "ok"
+    except Exception as exc:
+        return False, str(exc)
+
 # ================= API ENDPOINT: PROCESS VIDEO =================
 @app.post("/predict/video")
-async def predict_video(file: UploadFile = File(...)):
+async def predict_video(
+    file: UploadFile = File(...),
+    request_id: str | None = Header(default=None, alias="X-Request-ID")
+):
     """
     Processes video synchronously with streaming progress updates.
     Returns the processed video file.
     """
     RESULT_FOLDER = "result"
     os.makedirs(RESULT_FOLDER, exist_ok=True)
+
+    job_id = request_id or uuid.uuid4().hex
+    JOB_PROGRESS[job_id] = {
+        "request_id": job_id,
+        "status": "upload_received",
+        "frame": 0,
+        "total_frames": 0,
+        "percent": 0,
+        "message": "Upload received"
+    }
 
     # Save uploaded video temporarily
     temp_input_path = f"temp_{uuid.uuid4().hex}.mp4"
@@ -131,22 +194,35 @@ async def predict_video(file: UploadFile = File(...)):
 
     # Output path in 'result' folder
     temp_output_path = os.path.join(RESULT_FOLDER, f"segmented_{uuid.uuid4().hex}.mp4")
+    browser_output_path = os.path.join(RESULT_FOLDER, f"segmented_browser_{uuid.uuid4().hex}.mp4")
 
     try:
         # Open video
         cap = cv2.VideoCapture(temp_input_path)
         if not cap.isOpened():
-            return {"error": "Failed to open video file"}
+            raise HTTPException(status_code=400, detail="Failed to open video file")
 
         fps = int(cap.get(cv2.CAP_PROP_FPS))
+        if fps <= 0:
+            fps = 30
         frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        total_frames = max(total_frames, 1)
+
+        JOB_PROGRESS[job_id].update({
+            "status": "processing",
+            "frame": 0,
+            "total_frames": total_frames,
+            "percent": 0,
+            "message": "Processing video frames"
+        })
         
         print(f"Processing video: {total_frames} frames @ {fps}fps, {frame_width}x{frame_height}")
 
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        out_video = cv2.VideoWriter(temp_output_path, fourcc, fps, (frame_width, frame_height))
+        out_video, active_codec = create_video_writer(temp_output_path, fps, (frame_width, frame_height))
+        if out_video is None:
+            raise HTTPException(status_code=500, detail="Failed to initialize video encoder for output")
 
         frame_count = 0
         while True:
@@ -177,25 +253,72 @@ async def predict_video(file: UploadFile = File(...)):
             if frame_count % 10 == 0:
                 progress = int((frame_count / total_frames) * 100)
                 print(f"  Frame {frame_count}/{total_frames} ({progress}%)")
+                JOB_PROGRESS[job_id].update({
+                    "status": "processing",
+                    "frame": frame_count,
+                    "total_frames": total_frames,
+                    "percent": progress,
+                    "message": f"Frame {frame_count}/{total_frames} ({progress}%)"
+                })
 
         # Properly release resources
         cap.release()
         out_video.release()
+
+        output_size = os.path.getsize(temp_output_path) if os.path.exists(temp_output_path) else 0
+        if output_size <= 0:
+            raise HTTPException(status_code=500, detail="Output video was empty after processing")
+
+        response_path = temp_output_path
+        transcoded, transcode_note = transcode_to_browser_mp4(temp_output_path, browser_output_path)
+        if transcoded:
+            response_path = browser_output_path
+            try:
+                os.remove(temp_output_path)
+            except OSError:
+                pass
+            print(f"✓ Browser transcode complete: {browser_output_path}")
+        else:
+            print(f"⚠ Browser transcode skipped: {transcode_note}")
         
-        print(f"✓ Processing complete: {temp_output_path}")
+        final_size = os.path.getsize(response_path) if os.path.exists(response_path) else 0
+        print(f"✓ Processing complete: {response_path} (codec={active_codec}, size={final_size} bytes)")
+
+        JOB_PROGRESS[job_id].update({
+            "status": "completed",
+            "frame": total_frames,
+            "total_frames": total_frames,
+            "percent": 100,
+            "message": "Processing complete"
+        })
 
         # Delete temp input
         if os.path.exists(temp_input_path):
             os.remove(temp_input_path)
 
         # Return the processed video file
-        return FileResponse(temp_output_path, media_type="video/mp4", filename="segmented_video.mp4")
+        return FileResponse(response_path, media_type="video/mp4", filename="segmented_video.mp4")
 
     except Exception as e:
         print(f"Error processing video: {str(e)}")
+        JOB_PROGRESS[job_id].update({
+            "status": "error",
+            "message": str(e)
+        })
         # Cleanup
         if os.path.exists(temp_input_path):
             os.remove(temp_input_path)
         if os.path.exists(temp_output_path):
             os.remove(temp_output_path)
-        return {"error": str(e)}
+        if os.path.exists(browser_output_path):
+            os.remove(browser_output_path)
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/predict/progress/{request_id}")
+async def predict_progress(request_id: str):
+    if request_id not in JOB_PROGRESS:
+        raise HTTPException(status_code=404, detail="Progress not found for request")
+    return JOB_PROGRESS[request_id]
