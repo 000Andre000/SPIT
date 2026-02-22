@@ -20,10 +20,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Allow all origins
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allow all headers
 )
 
 # ================= SETTINGS =================
@@ -126,6 +126,32 @@ def mask_to_color(mask):
     for i in range(10):
         color_mask[mask == i] = color_palette[i]
     return color_mask
+
+from fastapi.staticfiles import StaticFiles
+import os
+
+# Mount result folder as static (add this after app = FastAPI(...))
+os.makedirs("result", exist_ok=True)
+app.mount("/results", StaticFiles(directory="result"), name="results")
+
+@app.get("/result/videos")
+async def list_result_videos():
+    """Returns list of all videos in the result folder."""
+    result_folder = "result"
+    os.makedirs(result_folder, exist_ok=True)
+    videos = []
+    for f in os.listdir(result_folder):
+        if f.endswith(('.mp4', '.avi', '.mov', '.mkv')):
+            full_path = os.path.join(result_folder, f)
+            videos.append({
+                "filename": f,
+                "url": f"/results/{f}",
+                "size_mb": round(os.path.getsize(full_path) / 1024 / 1024, 2),
+                "modified": os.path.getmtime(full_path)
+            })
+    # Sort newest first
+    videos.sort(key=lambda x: x["modified"], reverse=True)
+    return {"videos": videos}
 
 
 def create_video_writer(output_path: str, fps: int, frame_size: tuple[int, int]):

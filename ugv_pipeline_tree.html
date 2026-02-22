@@ -1,0 +1,1208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UGV · AI Pipeline Tree</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;700;800&display=swap');
+
+:root {
+  --bg: #030508;
+  --surface: #070d14;
+  --surface2: #0b1520;
+  --border: #0f2035;
+  --border2: #1a3550;
+  --root-col:  #ffffff;
+  --l1-col:    #00cfff;
+  --l2-col:    #a855f7;
+  --l3-col:    #f97316;
+  --l4-col:    #22c55e;
+  --l5-col:    #eab308;
+  --l6-col:    #ec4899;
+  --result-col:#00ffaa;
+  --fail-col:  #ff4466;
+  --seg-col:   #38bdf8;
+  --text: #7a9cb0;
+  --bright: #d0e8f4;
+  --dim: #2a4a60;
+  --mono: 'JetBrains Mono', monospace;
+  --display: 'Syne', sans-serif;
+}
+
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);}
+body { font-family: var(--mono); color: var(--text); display: flex; flex-direction: column; }
+body::after {
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;
+  background: repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,207,255,.008) 3px,rgba(0,207,255,.008) 4px);
+}
+
+.topbar {
+  height: 48px; background: var(--surface); border-bottom: 1px solid var(--border2);
+  display: flex; align-items: center; padding: 0 20px; gap: 20px; flex-shrink: 0;
+  position: relative; overflow: hidden;
+}
+.topbar::after {
+  content:'';position:absolute;bottom:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent 0%,var(--l1-col) 20%,var(--l2-col) 45%,var(--fail-col) 65%,var(--result-col) 100%);
+  opacity:.5;
+}
+.logo { font-family: var(--display); font-size: 17px; font-weight: 800; letter-spacing: 3px; color: var(--bright); text-transform: uppercase; }
+.logo span { color: var(--l1-col); }
+.tb-pills { display: flex; gap: 6px; margin-left: 12px; }
+.pill {
+  padding: 3px 10px; font-size: 9px; letter-spacing: 1.5px; font-weight: 700;
+  border-radius: 2px; text-transform: uppercase; border: 1px solid transparent;
+  cursor: pointer; transition: all .2s; font-family: var(--mono);
+}
+.pill.active { background: rgba(0,207,255,.12); border-color: var(--l1-col); color: var(--l1-col); }
+.pill:not(.active) { border-color: var(--border2); color: var(--dim); }
+.pill:hover:not(.active) { border-color: var(--border2); color: var(--text); }
+.tb-stats { display: flex; gap: 24px; margin-left: auto; }
+.tbs { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+.tbs-l { font-size: 7px; letter-spacing: 1.5px; color: var(--dim); text-transform: uppercase; }
+.tbs-v { font-size: 13px; font-weight: 700; line-height: 1; font-family: var(--mono); }
+.run-btn {
+  margin-left: 16px; padding: 6px 18px; background: rgba(0,207,255,.1);
+  border: 1px solid rgba(0,207,255,.5); color: var(--l1-col); font-family: var(--mono);
+  font-size: 10px; letter-spacing: 2px; font-weight: 700; cursor: pointer;
+  border-radius: 2px; text-transform: uppercase; transition: all .2s;
+}
+.run-btn:hover { background: rgba(0,207,255,.2); box-shadow: 0 0 20px rgba(0,207,255,.15); }
+.run-btn.running { border-color: var(--l5-col); color: var(--l5-col); background: rgba(234,179,8,.1); }
+
+.main { flex: 1; display: grid; grid-template-columns: 1fr 320px; overflow: hidden; }
+
+.tree-area { position: relative; overflow: hidden; background: var(--bg); }
+#treeCanvas { position: absolute; inset: 0; cursor: grab; }
+#treeCanvas:active { cursor: grabbing; }
+.zoom-controls { position: absolute; bottom: 16px; right: 16px; display: flex; flex-direction: column; gap: 4px; }
+.zc-btn {
+  width: 28px; height: 28px; background: var(--surface); border: 1px solid var(--border2);
+  color: var(--text); font-size: 14px; cursor: pointer; border-radius: 2px;
+  display: flex; align-items: center; justify-content: center; transition: all .15s; font-family: var(--mono);
+}
+.zc-btn:hover { border-color: var(--l1-col); color: var(--l1-col); }
+.legend-box {
+  position: absolute; top: 12px; left: 12px; background: rgba(7,13,20,.92);
+  border: 1px solid var(--border2); border-radius: 3px; padding: 10px 12px; backdrop-filter: blur(8px);
+}
+.leg-title { font-size: 7px; letter-spacing: 2px; color: var(--dim); text-transform: uppercase; margin-bottom: 6px; }
+.leg-item { display: flex; align-items: center; gap: 7px; margin-bottom: 3px; font-size: 9px; color: var(--text); }
+.leg-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.node-popup {
+  position: absolute; background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: 4px; padding: 12px 14px; width: 230px; pointer-events: none;
+  opacity: 0; transition: opacity .2s; z-index: 100; box-shadow: 0 8px 32px rgba(0,0,0,.5);
+}
+.node-popup.visible { opacity: 1; }
+.np-step { font-size: 8px; letter-spacing: 1.5px; font-weight: 700; margin-bottom: 4px; }
+.np-name { font-size: 13px; font-weight: 700; color: var(--bright); font-family: var(--display); margin-bottom: 8px; }
+.np-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; font-size: 9px; }
+.np-label { color: var(--dim); }
+.np-val { font-weight: 700; font-size: 10px; }
+.np-bar-track { width: 100%; height: 3px; background: var(--border); border-radius: 2px; margin-top: 6px; overflow: hidden; }
+.np-bar-fill { height: 100%; border-radius: 2px; transition: width .5s; }
+
+.right-panel {
+  background: var(--surface); border-left: 1px solid var(--border2);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.rp-header {
+  padding: 12px 14px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+}
+.rp-title { font-family: var(--display); font-size: 11px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--bright); }
+.selected-node-panel { padding: 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; max-height: 340px; overflow-y: auto; }
+.snp-empty { color: var(--dim); font-size: 10px; text-align: center; padding: 12px 0; letter-spacing: 1px; }
+.snp-badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 2px; font-size: 9px; font-weight: 700; letter-spacing: 1.5px; margin-bottom: 8px; }
+.snp-name { font-family: var(--display); font-size: 18px; font-weight: 800; color: var(--bright); margin-bottom: 4px; line-height: 1.1; }
+.snp-plain { font-size: 10px; color: var(--text); line-height: 1.5; margin-bottom: 10px; padding: 6px 8px; background: rgba(255,255,255,.02); border-left: 2px solid var(--border2); border-radius: 1px; }
+.snp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+.snp-metric { background: rgba(0,0,0,.3); border: 1px solid var(--border); border-radius: 2px; padding: 7px 9px; }
+.snp-m-label { font-size: 7px; color: var(--dim); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 2px; }
+.snp-m-val { font-size: 15px; font-weight: 700; line-height: 1; font-family: var(--mono); }
+.io-section { margin-top: 8px; }
+.io-label { font-size: 7px; color: var(--dim); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 4px; }
+.io-box { background: rgba(0,0,0,.4); border: 1px solid var(--border); border-radius: 2px; padding: 6px 8px; font-size: 9px; color: var(--l1-col); font-family: var(--mono); line-height: 1.6; margin-bottom: 4px; }
+
+.stats-stream {
+  flex: 1; overflow-y: auto; padding: 10px 14px;
+  display: flex; flex-direction: column; gap: 4px; min-height: 0;
+}
+.stream-entry {
+  display: flex; gap: 8px; align-items: flex-start;
+  padding: 5px 7px; border-radius: 2px; border-left: 2px solid transparent;
+  animation: slideIn .3s ease; font-size: 9px;
+}
+@keyframes slideIn { from{opacity:0;transform:translateX(8px)} to{opacity:1;transform:translateX(0)} }
+.se-icon { flex-shrink: 0; font-size: 11px; line-height: 1.3; }
+.se-body { flex: 1; }
+.se-step { font-size: 7px; font-weight: 700; letter-spacing: 1px; }
+.se-text { color: var(--bright); line-height: 1.4; margin-top: 1px; }
+.se-plain { color: var(--dim); font-size: 8px; line-height: 1.3; margin-top: 2px; font-family: 'Syne', sans-serif; }
+.se-ok { border-color: var(--l4-col); background: rgba(34,197,94,.04); }
+.se-info { border-color: var(--l1-col); background: rgba(0,207,255,.03); }
+.se-proc { border-color: var(--l5-col); background: rgba(234,179,8,.03); }
+.se-warn { border-color: var(--fail-col); background: rgba(255,68,102,.04); }
+.se-result { border-color: var(--result-col); background: rgba(0,255,170,.05); }
+.se-fail { border-color: var(--fail-col); background: rgba(255,68,102,.06); }
+
+.worker-toggle { display: flex; gap: 0; border: 1px solid var(--border2); border-radius: 2px; overflow: hidden; margin-left: auto; }
+.wt-btn {
+  padding: 4px 10px; font-size: 8px; letter-spacing: 1px; font-weight: 700;
+  text-transform: uppercase; cursor: pointer; border: none; background: transparent;
+  color: var(--dim); font-family: var(--mono); transition: all .15s;
+}
+.wt-btn.active { background: rgba(0,207,255,.12); color: var(--l1-col); }
+
+.video-panel {
+  border-top: 1px solid var(--border2); background: var(--surface);
+  flex-shrink: 0; display: flex; flex-direction: column; max-height: 300px;
+}
+.video-panel-header {
+  display: flex; align-items: center; gap: 8px; padding: 8px 14px;
+  border-bottom: 1px solid var(--border); flex-shrink: 0; position: relative; overflow: hidden;
+}
+.video-panel-header::after {
+  content:'';position:absolute;bottom:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,var(--result-col),var(--l2-col)); opacity:.3;
+}
+.vp-title { font-family: var(--display); font-size: 10px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--bright); }
+.vp-badge {
+  padding: 2px 7px; border-radius: 2px; font-size: 7px; font-weight: 700;
+  letter-spacing: 1.5px; text-transform: uppercase; border: 1px solid var(--result-col);
+  color: var(--result-col); background: rgba(0,255,170,.06); margin-left: auto;
+}
+.vp-badge.processing { border-color: var(--l5-col); color: var(--l5-col); background: rgba(234,179,8,.08); animation: badgePulse 1s infinite; }
+@keyframes badgePulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+
+.drop-zone {
+  margin: 10px 14px; border: 1px dashed var(--border2); border-radius: 3px;
+  padding: 10px; display: flex; flex-direction: column; align-items: center; gap: 5px;
+  cursor: pointer; transition: all .2s; position: relative; overflow: hidden;
+  background: rgba(0,0,0,.2); flex-shrink: 0;
+}
+.drop-zone:hover, .drop-zone.drag-over { border-color: var(--result-col); background: rgba(0,255,170,.04); }
+.drop-zone-icon { font-size: 18px; opacity: .4; }
+.drop-zone-text { font-size: 9px; color: var(--dim); letter-spacing: 1px; text-align: center; line-height: 1.5; }
+.drop-zone-text span { color: var(--result-col); }
+.drop-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+
+.vp-action-bar { display: flex; gap: 6px; padding: 0 14px 10px; flex-shrink: 0; align-items: center; }
+.vp-file-info {
+  flex: 1; font-size: 8px; color: var(--text); font-family: var(--mono);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 4px 6px; background: rgba(0,0,0,.3); border: 1px solid var(--border); border-radius: 2px;
+}
+.vp-file-info.has-file { color: var(--l1-col); }
+.vp-predict-btn {
+  padding: 5px 14px; background: rgba(0,255,170,.08); border: 1px solid rgba(0,255,170,.4);
+  color: var(--result-col); font-family: var(--mono); font-size: 9px; letter-spacing: 1.5px;
+  font-weight: 700; cursor: pointer; border-radius: 2px; text-transform: uppercase; transition: all .2s; white-space: nowrap;
+}
+.vp-predict-btn:hover:not(:disabled) { background: rgba(0,255,170,.15); box-shadow: 0 0 16px rgba(0,255,170,.1); }
+.vp-predict-btn:disabled { opacity: .3; cursor: not-allowed; }
+
+.vp-endpoint { display: flex; align-items: center; gap: 6px; padding: 0 14px 8px; flex-shrink: 0; }
+.vp-endpoint-label { font-size: 7px; color: var(--dim); letter-spacing: 1.5px; text-transform: uppercase; white-space: nowrap; }
+.vp-endpoint-input {
+  flex: 1; background: rgba(0,0,0,.4); border: 1px solid var(--border); border-radius: 2px;
+  padding: 3px 7px; font-size: 8px; color: var(--l1-col); font-family: var(--mono); outline: none; transition: border-color .15s;
+}
+
+.vp-result-area { flex: 1; overflow: hidden; position: relative; min-height: 0; display: none; }
+.vp-result-area.visible { display: block; }
+.vp-result-inner { width: 100%; height: 100%; display: flex; flex-direction: column; padding: 0 14px 10px; gap: 6px; }
+.vp-result-label {
+  font-size: 7px; color: var(--result-col); letter-spacing: 2px; text-transform: uppercase;
+  display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+}
+.vp-result-label::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--result-col); box-shadow: 0 0 6px var(--result-col); }
+.vp-media-wrap {
+  flex: 1; min-height: 0; position: relative; border: 1px solid rgba(0,255,170,.2);
+  border-radius: 3px; overflow: hidden; background: #000;
+}
+.vp-media-wrap video, .vp-media-wrap img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.vp-hud-corner { position: absolute; width: 10px; height: 10px; border-color: var(--result-col); border-style: solid; opacity: .6; pointer-events: none; z-index: 3; }
+.vp-hud-corner.tl { top: 4px; left: 4px; border-width: 1px 0 0 1px; }
+.vp-hud-corner.tr { top: 4px; right: 4px; border-width: 1px 1px 0 0; }
+.vp-hud-corner.bl { bottom: 4px; left: 4px; border-width: 0 0 1px 1px; }
+.vp-hud-corner.br { bottom: 4px; right: 4px; border-width: 0 1px 1px 0; }
+.vp-hud-label {
+  position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
+  font-size: 7px; letter-spacing: 2px; color: var(--result-col); opacity: .6;
+  font-family: var(--mono); pointer-events: none; z-index: 3; text-transform: uppercase;
+}
+
+.vp-loading-overlay {
+  position: absolute; inset: 0; background: rgba(3,5,8,.92);
+  display: none; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; z-index: 10; backdrop-filter: blur(6px);
+}
+.vp-loading-overlay.visible { display: flex; }
+.vp-spinner { width: 40px; height: 40px; border: 2px solid var(--border2); border-top-color: var(--result-col); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.vp-loading-text { font-size: 10px; color: var(--result-col); letter-spacing: 2px; text-transform: uppercase; font-weight: 700; }
+.vp-loading-sub { font-size: 8px; color: var(--dim); letter-spacing: 1px; text-align: center; line-height: 1.6; max-width: 200px; }
+.vp-loading-dots { display: flex; gap: 5px; }
+.vp-loading-dots span { width: 5px; height: 5px; border-radius: 50%; background: var(--result-col); opacity: .3; animation: dotPulse 1.2s ease-in-out infinite; }
+.vp-loading-dots span:nth-child(2) { animation-delay: .2s; }
+.vp-loading-dots span:nth-child(3) { animation-delay: .4s; }
+@keyframes dotPulse { 0%,80%,100%{opacity:.2;transform:scale(.8)} 40%{opacity:1;transform:scale(1)} }
+.vp-elapsed { font-size: 9px; color: var(--l5-col); font-family: var(--mono); letter-spacing: 1px; }
+.vp-progress-bar { height: 2px; background: var(--border); border-radius: 1px; overflow: hidden; flex-shrink: 0; display: none; }
+.vp-progress-bar.visible { display: block; }
+.vp-progress-fill { height: 100%; background: linear-gradient(90deg, var(--l2-col), var(--result-col)); border-radius: 1px; transition: width .4s ease; width: 0%; }
+
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">UGV · <span>AI</span> PIPELINE TREE</div>
+  <div class="tb-pills">
+    <div class="pill active" onclick="setLayout('top-down')">↓ TOP-DOWN</div>
+    <div class="pill" onclick="setLayout('radial')">◎ RADIAL</div>
+    <div class="pill" onclick="resetTree()">↺ RESET</div>
+  </div>
+  <div class="tb-stats">
+    <div class="tbs"><span class="tbs-l">Frame</span><span class="tbs-v" id="hdr-frame" style="color:var(--l1-col)">—</span></div>
+    <div class="tbs"><span class="tbs-l">Nodes</span><span class="tbs-v" id="hdr-nodes" style="color:var(--l2-col)">0</span></div>
+    <div class="tbs"><span class="tbs-l">Total ms</span><span class="tbs-v" id="hdr-ms" style="color:var(--l5-col)">—</span></div>
+    <div class="tbs"><span class="tbs-l">Status</span><span class="tbs-v" id="hdr-status" style="color:var(--dim)">IDLE</span></div>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;margin-left:8px;">
+    <div class="worker-toggle">
+      <button type="button" class="wt-btn active" id="expert-btn" onclick="setMode('expert')">EXPERT</button>
+      <button type="button" class="wt-btn" id="worker-btn" onclick="setMode('worker')">WORKER</button>
+    </div>
+    <button type="button" class="run-btn" id="run-btn" onclick="startPipeline()">▶ RUN PIPELINE</button>
+  </div>
+</div>
+
+<div class="main">
+  <div class="tree-area">
+    <canvas id="treeCanvas"></canvas>
+    <div class="legend-box">
+      <div class="leg-title">Node Layers</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#fff"></div>Pipeline Root</div>
+      <div class="leg-item"><div class="leg-dot" style="background:var(--l1-col)"></div>Preprocessing</div>
+      <div class="leg-item"><div class="leg-dot" style="background:var(--fail-col)"></div>Failed Experiments</div>
+      <div class="leg-item"><div class="leg-dot" style="background:var(--l2-col)"></div>DINOv2 Backbone</div>
+      <div class="leg-item"><div class="leg-dot" style="background:var(--seg-col)"></div>SegFormer</div>
+      <div class="leg-item"><div class="leg-dot" style="background:var(--l3-col)"></div>Segmentation Head</div>
+      <div class="leg-item"><div class="leg-dot" style="background:var(--l4-col)"></div>Navigation</div>
+      <div class="leg-item"><div class="leg-dot" style="background:var(--l5-col)"></div>Path Planning</div>
+      <div class="leg-item"><div class="leg-dot" style="background:var(--result-col)"></div>Final Output</div>
+      <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);font-size:8px;color:var(--dim);">
+        Scroll: zoom · Drag: pan · Click: inspect
+      </div>
+    </div>
+    <div class="node-popup" id="node-popup">
+      <div class="np-step" id="np-step">STEP 1</div>
+      <div class="np-name" id="np-name">Node</div>
+      <div class="np-row"><span class="np-label">Latency</span><span class="np-val" id="np-ms">--ms</span></div>
+      <div class="np-row"><span class="np-label">mIoU</span><span class="np-val" id="np-conf">--%</span></div>
+      <div class="np-row"><span class="np-label">Output</span><span class="np-val" id="np-shape">--</span></div>
+      <div class="np-bar-track"><div class="np-bar-fill" id="np-bar" style="width:0%"></div></div>
+    </div>
+    <div class="zoom-controls">
+      <button type="button" class="zc-btn" onclick="zoom(1.2)">+</button>
+      <button type="button" class="zc-btn" onclick="zoom(0.83)">−</button>
+      <button type="button" class="zc-btn" onclick="fitView()" title="Fit">⊡</button>
+    </div>
+  </div>
+
+  <div class="right-panel">
+    <div class="rp-header">
+      <div class="rp-title">Node Inspector</div>
+    </div>
+    <div class="selected-node-panel" id="selected-panel">
+      <div class="snp-empty" id="snp-empty">← Click any node to inspect</div>
+      <div id="snp-content" style="display:none"></div>
+    </div>
+    <div class="rp-header" style="border-top:1px solid var(--border);">
+      <div class="rp-title" style="font-size:9px;">Live Stats Stream</div>
+      <span style="margin-left:auto;font-size:8px;color:var(--dim);cursor:pointer;" onclick="clearStream()">CLEAR ✕</span>
+    </div>
+    <div class="stats-stream" id="stats-stream">
+      <div style="color:var(--dim);font-size:9px;text-align:center;padding:20px 0;letter-spacing:1px;">Press RUN PIPELINE to begin</div>
+    </div>
+
+    <div class="video-panel" id="video-panel">
+      <div class="video-panel-header">
+        <div class="vp-title">▶ Seg Overlay Output</div>
+        <div class="vp-badge" id="vp-badge">READY</div>
+      </div>
+      <div class="vp-endpoint">
+        <span class="vp-endpoint-label">API Endpoint</span>
+        <input class="vp-endpoint-input" id="vp-endpoint" type="text" value="http://localhost:8000/predict/video" />
+      </div>
+      <div class="drop-zone" id="drop-zone">
+        <div class="drop-zone-icon">📹</div>
+        <div class="drop-zone-text">Drop <span>image or video</span> here<br>or click to browse</div>
+        <input type="file" id="file-input" accept="image/*,video/*" />
+      </div>
+      <div class="vp-action-bar">
+        <div class="vp-file-info" id="vp-file-info">No file selected</div>
+        <button type="button" class="vp-predict-btn" id="vp-predict-btn" disabled>⚡ PREDICT</button>
+      </div>
+      <div class="vp-progress-bar" id="vp-progress-bar">
+        <div class="vp-progress-fill" id="vp-progress-fill"></div>
+      </div>
+      <div class="vp-result-area" id="vp-result-area">
+        <div class="vp-result-inner">
+          <div class="vp-result-label">Segmentation Output</div>
+          <div class="vp-media-wrap" id="vp-media-wrap">
+            <div class="vp-hud-corner tl"></div><div class="vp-hud-corner tr"></div>
+            <div class="vp-hud-corner bl"></div><div class="vp-hud-corner br"></div>
+            <div class="vp-hud-label" id="vp-hud-label">PROCESSING...</div>
+            <div class="vp-loading-overlay" id="vp-loading-overlay">
+              <div class="vp-spinner"></div>
+              <div class="vp-loading-text" id="vp-loading-text">Waiting for Server</div>
+              <div class="vp-loading-sub" id="vp-loading-sub">Running DINOv2 + ConvNeXt inference</div>
+              <div class="vp-loading-dots"><span></span><span></span><span></span></div>
+              <div class="vp-elapsed" id="vp-elapsed">00:00</div>
+            </div>
+            <video id="pred-video" controls style="display:none;" playsinline></video>
+            <img id="pred-img" style="display:none;" alt="Segmentation result" />
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════
+//  FULL PIPELINE TREE — all models from the paper
+// ════════════════════════════════════════════════════════════
+
+// ── COLOURS ─────────────────────────────────────────────────
+const C = {
+  root:    '#ffffff',
+  pre:     '#00cfff',   // preprocessing
+  fail:    '#ff4466',   // failed experiments
+  dino:    '#a855f7',   // DINOv2 backbone
+  seg:     '#38bdf8',   // SegFormer alternative
+  head:    '#f97316',   // segmentation head
+  nav:     '#22c55e',   // navigation
+  plan:    '#eab308',   // path planning
+  result:  '#00ffaa',   // final output
+  mfb:     '#f472b6',   // median frequency
+};
+
+// ════════════════════════════════════════════════════════════
+//  NODE DEFINITIONS
+// ════════════════════════════════════════════════════════════
+const ALL_NODES = [
+  // ─── ROOT ───────────────────────────────────────────────
+  {
+    id:'root', label:'UGV-SEG\nPIPELINE', sublabel:'Duality AI · 3idiots', layer:0, color:C.root, shape:'hex',
+    stats:{ms:0,conf:100,shape:'960×540 RGB',
+      desc:'Entry point. Raw desert camera frames flow through preprocessing, model experiments (including failures), the winning DINOv2+ConvNeXt path, and the SegFormer parallel, to produce pixel-accurate terrain maps for UGV navigation.'},
+    plain:'The complete AI pipeline from raw camera image to UGV drive command.',
+    parentId:null
+  },
+
+  // ─── PREPROCESSING ──────────────────────────────────────
+  {
+    id:'preprocess', label:'PREPROCESSING', sublabel:'Brightness + Dehazing', layer:1, color:C.pre, shape:'hex',
+    stats:{ms:8,conf:100,shape:'960×540 RGB norm',
+      desc:'Two-stage preprocessing: (1) brightness normalisation to reduce synthetic exposure bias, (2) dehazing to remove noise/haze common in synthetic desert renders. Critical because data is synthetic and needed domain adaptation.'},
+    plain:'Cleans up the synthetic image — fixes brightness and removes haze so the AI sees clearly.',
+    parentId:'root'
+  },
+  {
+    id:'brightness_norm', label:'BRIGHTNESS\nNORMALISE', sublabel:'Exposure correction', layer:2, color:C.pre, shape:'rect',
+    stats:{ms:3,conf:100,shape:'960×540 float32',
+      desc:'Gamma + histogram normalisation to balance synthetic brightness across desert scenes. Prevents model from learning lighting artefacts rather than terrain features.'},
+    plain:'Adjusts image brightness so shadows and bright sky do not confuse the model.',
+    parentId:'preprocess'
+  },
+  {
+    id:'dehazing', label:'DEHAZING', sublabel:'Haze / noise removal', layer:2, color:C.pre, shape:'rect',
+    stats:{ms:5,conf:100,shape:'960×540 float32',
+      desc:'Dark-channel prior or DCP dehazing to remove atmospheric noise from synthetic scenes. Improves edge clarity for small obstacles like logs and rocks.'},
+    plain:'Removes foggy haze so small rocks and logs are visible to the model.',
+    parentId:'preprocess'
+  },
+
+  // ─── CLASS WEIGHTING ────────────────────────────────────
+  {
+    id:'class_weight', label:'CLASS\nWEIGHTING', sublabel:'Imbalance correction', layer:2, color:C.pre, shape:'rect',
+    stats:{ms:1,conf:100,shape:'10-class weights',
+      desc:'Sky occupies 37.64% and Landscape 24.45% of pixels, while Logs are only 0.08%, Rocks 1.20%, Dry Bushes 1.10%. Without correction the model ignores safety-critical obstacles.'},
+    plain:'Tells the model to care MORE about rare dangerous obstacles like logs and rocks.',
+    parentId:'preprocess'
+  },
+  {
+    id:'inv_freq', label:'INVERSE\nFREQ WT', sublabel:'w = 1/F · clipped≤10', layer:3, color:C.pre, shape:'rect',
+    stats:{ms:1,conf:100,shape:'10-dim weight vec',
+      desc:'w = 1/pixel_frequency per class. Rare classes (logs, rocks) get weights up to 10×. Weights clipped at 10 to prevent gradient explosion. Improved rare-class recall but caused some instability.'},
+    plain:'Rare classes get a bigger penalty when wrong — the model is forced to learn them.',
+    parentId:'class_weight'
+  },
+  {
+    id:'mfb', label:'MEDIAN FREQ\nBALANCING', sublabel:'MFB = median(f)/f', layer:3, color:C.mfb, shape:'rect',
+    stats:{ms:1,conf:100,shape:'10-dim weight vec',
+      desc:'MFB = median(class_frequencies) / class_frequency. More stable than inverse-frequency — avoids extreme weight values. Chosen as final weighting strategy. Improved mIoU for logs, rocks, and dry bushes.'},
+    plain:'A smarter version of class weighting — stable enough to train without crashes.',
+    parentId:'class_weight'
+  },
+
+  // ─── FAILED EXPERIMENTS ─────────────────────────────────
+  {
+    id:'experiments', label:'EXPERIMENTS\n(JOURNEY)', sublabel:'Failure → Learning', layer:1, color:C.fail, shape:'hex',
+    stats:{ms:0,conf:0,shape:'Multiple runs',
+      desc:'Three model approaches were explored before reaching the winning solution. Each experiment informed the next design decision. Failures are documented with quantitative metrics.'},
+    plain:'The team tried different loss functions before finding what worked.',
+    parentId:'root'
+  },
+  {
+    id:'cross_entropy', label:'WEIGHTED\nCROSS-ENTROPY', sublabel:'Experiment 1', layer:2, color:C.fail, shape:'rect',
+    stats:{ms:45,conf:0,shape:'[1,10,H,W] logits',
+      desc:'Standard weighted cross-entropy loss: L = -Σ w_c · y_c · log(p_c). Applied class weights from MFB. Bias toward large classes persisted. mIoU was low — small obstacles still poorly detected. Led to exploring Focal Loss.'},
+    plain:'The first attempt — punishes wrong predictions. Worked okay but struggled with rare obstacles.',
+    parentId:'experiments'
+  },
+  {
+    id:'focal_loss', label:'FOCAL LOSS', sublabel:'Experiment 2 · γ focusing', layer:2, color:C.fail, shape:'rect',
+    stats:{ms:42,conf:5.1,shape:'[1,10,H,W] logits',
+      desc:'FL = -α(1-pt)^γ · log(pt). Down-weights easy pixels, focuses on hard misclassifications. Train loss: 1.4084, Val loss: 1.3919. Val IoU: 0.0511, Pixel Acc: 0.0955. Better boundary learning but metrics still low. Prompted backbone upgrade.'},
+    plain:'Focal Loss focusses on the hardest-to-classify pixels — improved boundaries but still not enough.',
+    parentId:'experiments'
+  },
+  {
+    id:'focal_metrics', label:'FOCAL METRICS', sublabel:'Train/Val results', layer:3, color:C.fail, shape:'rect',
+    stats:{ms:0,conf:5.1,shape:'IoU 0.0511 val',
+      desc:'Train: Loss=1.4084, IoU=0.0527, Dice=0.0903, PixAcc=0.0935 | Val: Loss=1.3919, IoU=0.0511, Dice=0.0871, PixAcc=0.0955. Low IoU revealed model needed a stronger visual backbone, not just a better loss.'},
+    plain:'The numbers showed Focal Loss alone was not powerful enough — the backbone was the bottleneck.',
+    parentId:'focal_loss'
+  },
+
+  // ─── RANDOM CROP AUGMENTATION ──────────────────────────
+  {
+    id:'rand_crop', label:'RANDOM CROP\nAUGMENT', sublabel:'div-14 compatible', layer:2, color:C.pre, shape:'rect',
+    stats:{ms:2,conf:100,shape:'Cropped patch',
+      desc:'Random crop patches from high-res images rather than always seeing the full scene. Crop size divisible by 14 for DINOv2 patch token compatibility. Forces model to learn from small obstacle regions. Improves scale robustness and rare-class learning.'},
+    plain:'Randomly zooms into parts of the image so the model learns to spot small rocks and logs.',
+    parentId:'preprocess'
+  },
+
+  // ─── DINOV2 BACKBONE (WINNING PATH) ─────────────────────
+  {
+    id:'dinov2', label:'DINOv2\nBACKBONE', sublabel:'ViT-S/14 · 21M · FROZEN', layer:1, color:C.dino, shape:'hex',
+    stats:{ms:42,conf:94,shape:'[1,646,384]',
+      desc:'Pretrained DINOv2 Vision Transformer (ViT-S/14) used as a frozen feature extractor. Self-supervised pretraining gives rich patch-level semantic embeddings encoding texture, geometry, and scene context without segmentation supervision. Freezing reduces training cost and prevents overfitting.'},
+    plain:'The main brain — a powerful pretrained model that understands what terrain looks like without extra training.',
+    parentId:'root'
+  },
+  {
+    id:'patch_embed', label:'PATCH\nEMBED', sublabel:'14×14 patches → tokens', layer:2, color:C.dino, shape:'rect',
+    stats:{ms:4,conf:100,shape:'[1,646,384]',
+      desc:'Image divided into 34×19 = 646 non-overlapping 14×14 patches, each embedded into a 384-dim token. Enables positional-encoding-free processing.'},
+    plain:'Image is cut into 646 small squares — each becomes a word the AI can read.',
+    parentId:'dinov2'
+  },
+  {
+    id:'self_attn', label:'SELF\nATTENTION', sublabel:'6 heads · 12 layers', layer:2, color:C.dino, shape:'rect',
+    stats:{ms:28,conf:94,shape:'[1,646,384]',
+      desc:'Multi-head self-attention propagates context across all 646 patches simultaneously. Allows a rock patch to attend to surrounding terrain for accurate classification. 12 transformer layers deepen semantic understanding.'},
+    plain:'Each image patch looks at every other patch to understand what surrounds it.',
+    parentId:'dinov2'
+  },
+  {
+    id:'patch_tokens', label:'PATCH\nTOKENS', sublabel:'x_norm_patchtokens', layer:3, color:C.dino, shape:'rect',
+    stats:{ms:2,conf:94,shape:'[1,646,384]',
+      desc:'Normalised patch token output from DINOv2. These 646 vectors carry dense per-region semantic embeddings fed into the ConvNeXt segmentation head.'},
+    plain:'646 rich feature descriptions — one per image region — ready for segmentation.',
+    parentId:'self_attn'
+  },
+
+  // ─── CONVNEXT SEG HEAD ──────────────────────────────────
+  {
+    id:'seg_head', label:'ConvNeXt\nSEG HEAD', sublabel:'128-ch depthwise', layer:2, color:C.head, shape:'hex',
+    stats:{ms:14,conf:88,shape:'[1,10,266,476]',
+      desc:'ConvNeXt-style segmentation head attached to frozen DINOv2. Lightweight yet powerful: 7×7 conv stem + depthwise conv block + 1×1 classifier. Transforms 384-dim patch tokens → 10-class pixel-wise logit maps at full resolution.'},
+    plain:'Labels every pixel with a terrain type (sky, rock, bush, log, landscape…).',
+    parentId:'dinov2'
+  },
+  {
+    id:'reshape', label:'RESHAPE\n34×19 grid', sublabel:'Token → Spatial', layer:3, color:C.head, shape:'rect',
+    stats:{ms:1,conf:100,shape:'[1,384,19,34]',desc:'Reshape [1,646,384] token sequence back to 2D spatial feature map [1,384,19,34].'},
+    plain:'Rearranges the 646 tokens back into an image grid.',parentId:'seg_head'
+  },
+  {
+    id:'conv_stem', label:'CONV STEM\n7×7', sublabel:'384→128 channels', layer:3, color:C.head, shape:'rect',
+    stats:{ms:3,conf:91,shape:'[1,128,19,34]',desc:'7×7 depthwise convolution compresses 384 channels to 128. Captures local texture features before pointwise projection.'},
+    plain:'Compresses features and captures fine texture details.',parentId:'seg_head'
+  },
+  {
+    id:'conv_block', label:'CONV BLOCK\nDepthwise', sublabel:'Depthwise + Pointwise', layer:3, color:C.head, shape:'rect',
+    stats:{ms:4,conf:89,shape:'[1,128,19,34]',desc:'ConvNeXt depthwise-separable block. Efficient spatial mixing without full cross-channel convolution. Maintains feature quality at low compute cost.'},
+    plain:'Refines texture and shape understanding efficiently.',parentId:'seg_head'
+  },
+  {
+    id:'classifier', label:'1×1\nCLASSIFIER', sublabel:'128→10 classes', layer:3, color:C.head, shape:'rect',
+    stats:{ms:2,conf:87,shape:'[1,10,19,34]',desc:'1×1 pointwise convolution projects 128 feature channels to 10 class logit maps. One map per terrain class.'},
+    plain:'Decides which terrain class each patch belongs to.',parentId:'seg_head'
+  },
+  {
+    id:'upsample', label:'UPSAMPLE\n→ full res', sublabel:'Bilinear ×14', layer:3, color:C.head, shape:'rect',
+    stats:{ms:2,conf:87,shape:'[1,10,266,476]',desc:'Bilinear upsampling ×14 restores logit maps to input resolution. Each pixel receives a 10-dim class score vector.'},
+    plain:'Stretches the labels back to cover every pixel of the original image.',parentId:'seg_head'
+  },
+
+  // ─── SEGFORMER ALTERNATIVE ─────────────────────────────
+  {
+    id:'segformer', label:'SegFormer\nALTERNATIVE', sublabel:'MiT encoder + MLP dec', layer:1, color:C.seg, shape:'hex',
+    stats:{ms:38,conf:86,shape:'[1,10,H,W]',
+      desc:'SegFormer uses a Mix Transformer (MiT) encoder for multi-scale contextual features without positional encoding, followed by a lightweight MLP decoder. Efficient multi-scale fusion produces strong accuracy with fast inference — no heavy transformer decoders needed. Explored as an alternative to DINOv2+ConvNeXt.'},
+    plain:'An alternative end-to-end model that is fast and accurate — runs directly without a separate backbone.',
+    parentId:'root'
+  },
+  {
+    id:'mit_encoder', label:'MiT\nENCODER', sublabel:'Mix Transformer · no pos enc', layer:2, color:C.seg, shape:'rect',
+    stats:{ms:22,conf:86,shape:'Multi-scale feats',
+      desc:'Mix Transformer encoder extracts hierarchical features at 4 scales (1/4, 1/8, 1/16, 1/32). No positional encoding — more robust to varying image resolutions common in off-road deployments.'},
+    plain:'Reads the image at 4 different zoom levels to understand both big patterns and fine details.',
+    parentId:'segformer'
+  },
+  {
+    id:'mlp_decoder', label:'MLP\nDECODER', sublabel:'Lightweight fusion', layer:2, color:C.seg, shape:'rect',
+    stats:{ms:10,conf:86,shape:'[1,10,H/4,W/4]',
+      desc:'All-MLP decoder fuses multi-scale features from 4 encoder stages. Much lighter than transformer-based decoders. Outputs high-quality semantic maps faster than UPerNet or FPN decoders.'},
+    plain:'Combines multi-scale features into one final segmentation map efficiently.',
+    parentId:'segformer'
+  },
+  {
+    id:'seg_upsample', label:'UPSAMPLE\n→ full res', sublabel:'Bilinear interp', layer:3, color:C.seg, shape:'rect',
+    stats:{ms:3,conf:86,shape:'[1,10,H,W]',desc:'Bilinear upsampling from 1/4 resolution to full input resolution.'},
+    plain:'Expands the labels back to full image size.',parentId:'mlp_decoder'
+  },
+
+  // ─── POST-PROCESSING → NAVIGATION ──────────────────────
+  {
+    id:'softmax', label:'SOFTMAX\n→ Probs', sublabel:'Logits → [0,1]', layer:2, color:C.nav, shape:'rect',
+    stats:{ms:3,conf:87,shape:'[1,10,266,476]',desc:'Softmax normalises raw 10-class logits to probabilities summing to 1 per pixel.'},
+    plain:'Converts raw scores into percentages — "80% rock, 15% terrain, 5% sky".',
+    parentId:'seg_head'
+  },
+  {
+    id:'argmax', label:'ARGMAX\nClass Map', sublabel:'Max class per pixel', layer:3, color:C.nav, shape:'rect',
+    stats:{ms:1,conf:87,shape:'[1,266,476] int8',desc:'Per-pixel argmax selects the highest-probability class. Produces an integer class map.'},
+    plain:'Picks the winning terrain label for each pixel.',parentId:'softmax'
+  },
+  {
+    id:'cost_map', label:'COST MAP\nTerrain→Cost', sublabel:'Traversability grid', layer:3, color:C.nav, shape:'rect',
+    stats:{ms:5,conf:100,shape:'48×30 float',
+      desc:'Maps class IDs to movement costs: sky=∞, log=∞, rock=high, dry bush=medium, landscape=low. Produces a traversability grid for path planning.'},
+    plain:'Creates a difficulty map — easy zones in green, blocked zones in red.',
+    parentId:'argmax'
+  },
+  {
+    id:'astar', label:'A* PATH\nGRAPH SEARCH', sublabel:'f(n)=g(n)+h(n)', layer:4, color:C.plan, shape:'hex',
+    stats:{ms:28,conf:92,shape:'Path: N nodes',
+      desc:'A* with Manhattan heuristic on the cost grid. Explores minimum-cost path from UGV position to goal, avoiding high-cost terrain cells (logs, rocks).'},
+    plain:'Finds the safest, easiest route to the destination.',
+    parentId:'cost_map'
+  },
+  {
+    id:'collision', label:'COLLISION\nPROX SCAN', sublabel:'4-neighbour check', layer:5, color:C.plan, shape:'rect',
+    stats:{ms:4,conf:95,shape:'Risk: LOW/MED/HIGH',desc:'Each path node checked against obstacle cells. Flags HIGH risk if log or rock within 1-cell radius.'},
+    plain:'Checks the planned route for dangerous nearby obstacles.',parentId:'astar'
+  },
+  {
+    id:'waypoint', label:'NEXT\nWAYPOINT', sublabel:'Path[0] → UGV', layer:5, color:C.plan, shape:'rect',
+    stats:{ms:1,conf:98,shape:'(x,y) + heading°',desc:'First node on computed A* path issued as next waypoint. Includes heading angle and recommended speed.'},
+    plain:'Picks the very next position the UGV should move to.',parentId:'astar'
+  },
+
+  // ─── FINAL OUTPUT ───────────────────────────────────────
+  {
+    id:'result', label:'UGV\nCOMMAND', sublabel:'PROCEED / HALT', layer:5, color:C.result, shape:'hex',
+    stats:{ms:2,conf:95,shape:'Motor CMD',
+      desc:'Final motor command: heading angle, speed %, and PROCEED/HALT flag. Sent to UGV motor controller at up to 30Hz.'},
+    plain:'The UGV gets its final instructions — where to go, how fast, and whether it is safe to proceed.',
+    parentId:'waypoint'
+  },
+];
+
+// ════════════════════════════════════════════════════════════
+//  PIPELINE SEQUENCE — ordered spawn for animation
+// ════════════════════════════════════════════════════════════
+const PIPELINE_SEQUENCE = [
+  {id:'root',       delay:0},
+  // Preprocessing branch
+  {id:'preprocess', delay:600},
+  {id:'brightness_norm', delay:400},
+  {id:'dehazing',   delay:300},
+  {id:'class_weight',delay:400},
+  {id:'inv_freq',   delay:350},
+  {id:'mfb',        delay:300},
+  {id:'rand_crop',  delay:400},
+  // Failed experiments branch
+  {id:'experiments',delay:700},
+  {id:'cross_entropy',delay:500},
+  {id:'focal_loss', delay:500},
+  {id:'focal_metrics',delay:400},
+  // DINOv2 backbone (winning)
+  {id:'dinov2',     delay:800},
+  {id:'patch_embed',delay:400},
+  {id:'self_attn',  delay:350},
+  {id:'patch_tokens',delay:400},
+  {id:'seg_head',   delay:600},
+  {id:'reshape',    delay:300},
+  {id:'conv_stem',  delay:250},
+  {id:'conv_block', delay:250},
+  {id:'classifier', delay:250},
+  {id:'upsample',   delay:300},
+  // SegFormer alternative
+  {id:'segformer',  delay:700},
+  {id:'mit_encoder',delay:400},
+  {id:'mlp_decoder',delay:350},
+  {id:'seg_upsample',delay:300},
+  // Post-process → navigation
+  {id:'softmax',    delay:600},
+  {id:'argmax',     delay:350},
+  {id:'cost_map',   delay:400},
+  {id:'astar',      delay:500},
+  {id:'collision',  delay:350},
+  {id:'waypoint',   delay:300},
+  {id:'result',     delay:600},
+];
+
+// ════════════════════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════════════════════
+const canvas = document.getElementById('treeCanvas');
+const ctx = canvas.getContext('2d');
+let nodes = [], edges = [];
+let pan = {x:0,y:0}, scale = 1;
+let dragging = false, dragStart = {x:0,y:0}, panStart = {x:0,y:0};
+let selectedNode = null, hoveredNode = null;
+let pipelineRunning = false, frameNum = 0, workerMode = false, layout = 'top-down';
+
+function getNodeDef(id){ return ALL_NODES.find(n=>n.id===id); }
+
+function init() {
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+  setupInteraction();
+  buildInitialTree();
+  fitView();
+  render();
+  setupVideoPanel();
+}
+
+function resizeCanvas() { canvas.width = canvas.parentElement.clientWidth; canvas.height = canvas.parentElement.clientHeight; render(); }
+
+function buildInitialTree() {
+  nodes=[]; edges=[];
+  const rootDef = getNodeDef('root');
+  nodes.push(makeRuntimeNode(rootDef, canvas.width/2, 80));
+  fitView();
+}
+
+function makeRuntimeNode(def, x, y) {
+  return {
+    id:def.id, label:def.label, sublabel:def.sublabel, layer:def.layer,
+    color:def.color, shape:def.shape, stats:{...def.stats, ms:0},
+    realStats:def.stats, plain:def.plain, parentId:def.parentId,
+    x, y, targetX:x, targetY:y,
+    visible:false, appearing:false, progress:0, active:false, done:false, pulse:0,
+  };
+}
+
+async function startPipeline() {
+  if (pipelineRunning) return;
+  pipelineRunning=true; frameNum++;
+  document.getElementById('run-btn').classList.add('running');
+  document.getElementById('run-btn').textContent='⟳ RUNNING...';
+  document.getElementById('hdr-status').style.color='var(--l5-col)';
+  document.getElementById('hdr-status').textContent='RUNNING';
+  document.getElementById('hdr-frame').textContent=String(frameNum).padStart(4,'0');
+  nodes=[]; edges=[];
+  streamLog('info','SYS','Pipeline initialised','Starting full model pipeline — includes failure experiments and final winning path');
+  render();
+
+  for (let i=0; i<PIPELINE_SEQUENCE.length; i++) {
+    if (!pipelineRunning) break;
+    const item = PIPELINE_SEQUENCE[i];
+    await sleep(item.delay + Math.random()*80);
+    spawnNode(item.id);
+    document.getElementById('hdr-nodes').textContent = nodes.length;
+    relayout();
+  }
+
+  // Animate activation
+  for (let i=0; i<nodes.length; i++) {
+    if (!pipelineRunning) break;
+    const n = nodes[i];
+    n.active=true;
+    const ms = n.realStats.ms > 0 ? Math.round(n.realStats.ms*(0.8+Math.random()*0.4)) : 0;
+    n.stats.ms=ms; n.stats.conf=Math.round(n.realStats.conf*(0.93+Math.random()*0.1));
+    const isFailure = n.color === C.fail;
+    streamLog(
+      n.id==='result'?'result': isFailure?'warn':'proc',
+      n.id.toUpperCase().slice(0,8),
+      `${n.label.replace('\n',' ')}${ms?` · ${ms}ms`:''} · ${n.realStats.shape}`,
+      n.plain
+    );
+    await sleep(Math.max(60, ms*0.5+60));
+    n.active=false; n.done=true;
+  }
+
+  const totalMs = nodes.reduce((s,n)=>s+(n.stats.ms||0),0);
+  document.getElementById('hdr-ms').textContent=totalMs+'ms';
+  document.getElementById('hdr-status').style.color='var(--result-col)';
+  document.getElementById('hdr-status').textContent='COMPLETE';
+  document.getElementById('run-btn').classList.remove('running');
+  document.getElementById('run-btn').textContent='▶ RUN AGAIN';
+  const speed=[100,60,30][Math.floor(Math.random()*3)];
+  const heading=(Math.random()*60-30).toFixed(1);
+  streamLog('result','RESULT',
+    `CMD → heading:${heading>0?'+':''}${heading}° speed:${speed}% PROCEED`,
+    `UGV instructed: turn ${Math.abs(heading)}° ${heading>0?'right':'left'}, drive at ${speed}% speed`);
+  pipelineRunning=false;
+}
+
+function spawnNode(id) {
+  const def = getNodeDef(id);
+  if (!def) return;
+  const parent = nodes.find(n=>n.id===def.parentId);
+  const px = parent?parent.x:canvas.width/2;
+  const py = parent?parent.y:60;
+  const n = makeRuntimeNode(def, px, py+80);
+  n.appearing=true; n.progress=0;
+  nodes.push(n);
+  if (parent) edges.push({fromId:def.parentId, toId:id, color:def.color, progress:0, active:true});
+  streamLog('info','SPAWN',`Node: ${def.label.replace('\n',' ')} · layer ${def.layer}`, def.plain);
+}
+
+// ════════════════════════════════════════════════════════════
+//  LAYOUT
+// ════════════════════════════════════════════════════════════
+function relayout() { if(layout==='radial') radialLayout(); else topDownLayout(); }
+
+function topDownLayout() {
+  // Group by layer
+  const layers={};
+  nodes.forEach(n=>{if(!layers[n.layer])layers[n.layer]=[];layers[n.layer].push(n);});
+  const W=canvas.width, H=canvas.height;
+  const numLayers=Object.keys(layers).length||1;
+  const levelH=Math.min(130,(H-100)/numLayers);
+  Object.keys(layers).sort((a,b)=>a-b).forEach((lv,li)=>{
+    const group=layers[lv];
+    const spacing=Math.min(180,(W-80)/(group.length+0.5));
+    const startX=(W-spacing*(group.length-1))/2;
+    group.forEach((n,gi)=>{n.targetX=startX+gi*spacing; n.targetY=70+li*levelH;});
+  });
+}
+
+function radialLayout() {
+  const cx=canvas.width/2, cy=canvas.height/2;
+  const layers={};
+  nodes.forEach(n=>{if(!layers[n.layer])layers[n.layer]=[];layers[n.layer].push(n);});
+  const maxLayer=Math.max(...Object.keys(layers).map(Number));
+  const maxR=Math.min(canvas.width,canvas.height)*0.44;
+  Object.keys(layers).sort((a,b)=>a-b).forEach(lv=>{
+    const r=(lv/(maxLayer||1))*maxR;
+    const group=layers[lv];
+    group.forEach((n,gi)=>{
+      const angle=(gi/group.length)*Math.PI*2-Math.PI/2;
+      n.targetX=cx+Math.cos(angle)*r; n.targetY=cy+Math.sin(angle)*r;
+    });
+  });
+}
+
+function setLayout(l) {
+  layout=l;
+  document.querySelectorAll('.pill').forEach(p=>{
+    p.classList.toggle('active',p.textContent.toLowerCase().includes(l.split('-')[0]));
+  });
+  relayout();
+}
+
+function fitView() {
+  if(!nodes.length){pan={x:0,y:0};scale=1;return;}
+  const xs=nodes.map(n=>n.targetX||n.x), ys=nodes.map(n=>n.targetY||n.y);
+  const minX=Math.min(...xs)-70, maxX=Math.max(...xs)+70;
+  const minY=Math.min(...ys)-70, maxY=Math.max(...ys)+70;
+  const W=canvas.width, H=canvas.height;
+  const sx=(W-40)/(maxX-minX||1), sy=(H-40)/(maxY-minY||1);
+  scale=Math.min(sx,sy,1.4);
+  pan.x=W/2-(minX+maxX)/2*scale;
+  pan.y=H/2-(minY+maxY)/2*scale;
+}
+
+function resetTree() {
+  pipelineRunning=false; nodes=[]; edges=[]; buildInitialTree(); fitView();
+  document.getElementById('hdr-status').textContent='IDLE';
+  document.getElementById('hdr-status').style.color='var(--dim)';
+  document.getElementById('hdr-nodes').textContent='0';
+  document.getElementById('run-btn').textContent='▶ RUN PIPELINE';
+  document.getElementById('run-btn').classList.remove('running');
+}
+
+// ════════════════════════════════════════════════════════════
+//  RENDER
+// ════════════════════════════════════════════════════════════
+const NODE_W=98, NODE_H=46, NODE_R=32;
+
+function render() {
+  const W=canvas.width, H=canvas.height;
+  ctx.clearRect(0,0,W,H);
+  ctx.save();
+  ctx.strokeStyle='rgba(15,32,53,0.6)'; ctx.lineWidth=0.5;
+  const gs=40*scale, ox=pan.x%gs, oy=pan.y%gs;
+  for(let x=ox;x<W;x+=gs){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+  for(let y=oy;y<H;y+=gs){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+  ctx.restore();
+  ctx.save(); ctx.translate(pan.x,pan.y); ctx.scale(scale,scale);
+  nodes.forEach(n=>{
+    n.x+=((n.targetX||n.x)-n.x)*0.12; n.y+=((n.targetY||n.y)-n.y)*0.12;
+    if(n.appearing){n.progress=Math.min(1,n.progress+0.05); if(n.progress>=1){n.appearing=false; n.visible=true;}}
+    else{n.visible=true;}
+    if(n.active) n.pulse=(n.pulse+0.08)%(Math.PI*2);
+  });
+  edges.forEach(e=>{if(e.active&&e.progress<1)e.progress=Math.min(1,e.progress+0.04);});
+  edges.forEach(e=>drawEdge(e));
+  nodes.forEach(n=>drawNode(n));
+  ctx.restore();
+  requestAnimationFrame(render);
+}
+
+function drawEdge(e) {
+  const from=nodes.find(n=>n.id===e.fromId), to=nodes.find(n=>n.id===e.toId);
+  if(!from||!to||(!from.visible&&!from.appearing)) return;
+  const x1=from.x, y1=from.y, x2=to.x, y2=to.y;
+  const cx1=x1, cy1=(y1+y2)/2, cx2=x2, cy2=(y1+y2)/2;
+  const t=e.progress;
+  // Dashed for failure nodes
+  const isFail = to && to.color===C.fail;
+  ctx.save();
+  ctx.strokeStyle=e.color+(isFail?'50':'60'); ctx.lineWidth=1.5/scale;
+  ctx.setLineDash(isFail?[3,5]:[4,3]);
+  if(t<1){
+    ctx.beginPath(); drawPartialBezier(ctx,x1,y1,cx1,cy1,cx2,cy2,x2,y2,t); ctx.stroke();
+  } else {
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.bezierCurveTo(cx1,cy1,cx2,cy2,x2,y2); ctx.stroke();
+    const pt=((Date.now()/1000)%1);
+    const px=bezierPoint(x1,cx1,cx2,x2,pt), py=bezierPoint(y1,cy1,cy2,y2,pt);
+    ctx.setLineDash([]); ctx.fillStyle=e.color; ctx.shadowColor=e.color; ctx.shadowBlur=6/scale;
+    ctx.beginPath(); ctx.arc(px,py,2.5/scale,0,Math.PI*2); ctx.fill(); ctx.shadowBlur=0;
+  }
+  ctx.setLineDash([]); ctx.restore();
+}
+
+function drawPartialBezier(ctx,x1,y1,cx1,cy1,cx2,cy2,x2,y2,t) {
+  const steps=20; ctx.moveTo(x1,y1);
+  for(let i=1;i<=Math.round(steps*t);i++){const s=i/steps;ctx.lineTo(bezierPoint(x1,cx1,cx2,x2,s),bezierPoint(y1,cy1,cy2,y2,s));}
+}
+
+function bezierPoint(p0,p1,p2,p3,t){return(1-t)**3*p0+3*(1-t)**2*t*p1+3*(1-t)*t**2*p2+t**3*p3;}
+
+function drawNode(n) {
+  if(!n.visible&&!n.appearing) return;
+  const alpha=n.appearing?n.progress:1;
+  const col=n.color, x=n.x, y=n.y;
+  ctx.save(); ctx.globalAlpha=alpha; ctx.translate(x,y);
+  const sa=n.appearing?(0.4+n.progress*0.6):1; ctx.scale(sa,sa);
+  const isSelected=selectedNode&&selectedNode.id===n.id;
+  const isHovered=hoveredNode&&hoveredNode.id===n.id;
+  const isHex=n.shape==='hex';
+  const isFail=n.color===C.fail;
+  const w=isHex?NODE_R*1.8:NODE_W/2, h=isHex?NODE_R:NODE_H/2;
+
+  if(n.active||isSelected||n.done){
+    ctx.shadowColor=n.done?col:n.active?'#ffaa00':col;
+    ctx.shadowBlur=n.active?(14+Math.sin(n.pulse)*6)/scale:8/scale;
+  }
+
+  if(isHex){
+    drawHexagon(ctx,0,0,NODE_R);
+    ctx.fillStyle=n.active?'rgba(255,170,0,0.15)':n.done?col+'18':'#070d14'; ctx.fill();
+    ctx.strokeStyle=n.active?'#ffaa00':isSelected?'#fff':col;
+    ctx.lineWidth=(n.active||isSelected)?2/scale:1.5/scale;
+    drawHexagon(ctx,0,0,NODE_R); ctx.stroke();
+    // extra ring for root
+    if(n.id==='root'){
+      ctx.strokeStyle='rgba(255,255,255,0.06)'; ctx.lineWidth=0.5/scale;
+      for(let r=NODE_R+8;r<NODE_R+24;r+=8){drawHexagon(ctx,0,0,r);ctx.stroke();}
+    }
+  } else {
+    ctx.beginPath(); ctx.roundRect(-w,-h,w*2,h*2,4);
+    ctx.fillStyle=n.active?'rgba(255,170,0,0.1)':n.done?col+'12':'#070d14'; ctx.fill();
+    ctx.strokeStyle=n.active?'#ffaa00':isSelected?'#fff':col+(isFail?'90':'aa');
+    ctx.lineWidth=(n.active||isSelected)?2/scale:1/scale;
+    ctx.setLineDash(isFail?[4,3]:[]); ctx.stroke(); ctx.setLineDash([]);
+  }
+  ctx.shadowBlur=0;
+
+  // Status dot
+  if(n.active||n.done){
+    ctx.beginPath(); ctx.arc(w-4/scale,-h+4/scale,4/scale,0,Math.PI*2);
+    ctx.fillStyle=n.active?'#ffaa00': isFail?C.fail : '#22c55e';
+    if(n.active){ctx.shadowColor='#ffaa00'; ctx.shadowBlur=6/scale;}
+    ctx.fill(); ctx.shadowBlur=0;
+  }
+
+  // Label
+  const lines=n.label.split('\n');
+  ctx.fillStyle=n.active?'#ffcc44':n.done?col:isHovered?col:(col+'cc');
+  ctx.font=`700 ${isHex?10:9}px/1.2 'JetBrains Mono'`;
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  if(lines.length===1){ctx.fillText(lines[0],0,0);}
+  else{const lh=isHex?11:10; lines.forEach((l,i)=>{ctx.fillText(l,0,(i-(lines.length-1)/2)*lh);});}
+
+  // Sublabel
+  if(!isHex&&n.sublabel&&scale>0.55){
+    ctx.fillStyle=col+'55'; ctx.font=`400 7px 'JetBrains Mono'`;
+    ctx.fillText(n.sublabel,0,h-7/scale);
+  }
+
+  // ms badge
+  if(n.done&&n.stats.ms>0&&scale>0.45){
+    ctx.fillStyle='#000'; ctx.beginPath(); ctx.roundRect(-18/scale,h-1/scale,36/scale,12/scale,2/scale); ctx.fill();
+    ctx.strokeStyle=col+'60'; ctx.lineWidth=0.5/scale; ctx.stroke();
+    ctx.fillStyle=col; ctx.font=`700 8px 'JetBrains Mono'`;
+    ctx.fillText(`${n.stats.ms}ms`,0,h+6/scale);
+  }
+
+  // Active pulse ring
+  if(n.active){
+    const pr=NODE_R*(1+Math.sin(n.pulse)*0.3);
+    ctx.beginPath(); ctx.arc(0,0,pr,0,Math.PI*2);
+    ctx.strokeStyle=`rgba(255,170,0,${0.2*(1-Math.sin(n.pulse)*0.5)})`; ctx.lineWidth=1/scale; ctx.stroke();
+  }
+
+  // Failure X mark
+  if(isFail&&n.done&&!n.active){
+    ctx.strokeStyle=C.fail+'80'; ctx.lineWidth=1.5/scale;
+    const s=5/scale;
+    ctx.beginPath(); ctx.moveTo(-w+s,-h+s); ctx.lineTo(-w+s+8/scale,-h+s+8/scale); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-w+s+8/scale,-h+s); ctx.lineTo(-w+s,-h+s+8/scale); ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+function drawHexagon(ctx,cx,cy,r) {
+  ctx.beginPath();
+  for(let i=0;i<6;i++){const a=(i*Math.PI*2)/6-Math.PI/6; const px=cx+r*Math.cos(a),py=cy+r*Math.sin(a); i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);}
+  ctx.closePath();
+}
+
+// ════════════════════════════════════════════════════════════
+//  INTERACTION
+// ════════════════════════════════════════════════════════════
+function setupInteraction() {
+  canvas.addEventListener('mousedown',e=>{dragging=true;dragStart={x:e.clientX,y:e.clientY};panStart={...pan};});
+  canvas.addEventListener('mousemove',e=>{
+    if(dragging){pan.x=panStart.x+(e.clientX-dragStart.x);pan.y=panStart.y+(e.clientY-dragStart.y);return;}
+    const rect=canvas.getBoundingClientRect();
+    const {wx,wy}=screenToWorld(e.clientX-rect.left,e.clientY-rect.top);
+    const hit=hitTest(wx,wy); hoveredNode=hit;
+    const popup=document.getElementById('node-popup');
+    if(hit){
+      const sx=e.clientX-rect.left, sy=e.clientY-rect.top;
+      popup.style.left=(sx+14)+'px'; popup.style.top=(sy-20)+'px'; popup.classList.add('visible');
+      document.getElementById('np-step').textContent=`LAYER ${hit.layer} · ${hit.color===C.fail?'FAILED EXP':'NODE'}`;
+      document.getElementById('np-step').style.color=hit.color;
+      document.getElementById('np-name').textContent=hit.label.replace('\n',' ');
+      document.getElementById('np-ms').textContent=hit.done&&hit.stats.ms?hit.stats.ms+'ms':'--';
+      document.getElementById('np-ms').style.color=hit.color;
+      document.getElementById('np-conf').textContent=hit.done?hit.stats.conf+'%':'--';
+      document.getElementById('np-shape').textContent=hit.realStats.shape;
+      const bar=document.getElementById('np-bar'); bar.style.background=hit.color; bar.style.width=(hit.done?hit.stats.conf:0)+'%';
+    } else { popup.classList.remove('visible'); }
+  });
+  canvas.addEventListener('mouseup',e=>{
+    if(!dragging||(Math.abs(e.clientX-dragStart.x)<4&&Math.abs(e.clientY-dragStart.y)<4)){
+      const rect=canvas.getBoundingClientRect();
+      const {wx,wy}=screenToWorld(e.clientX-rect.left,e.clientY-rect.top);
+      const hit=hitTest(wx,wy); if(hit) selectNode(hit);
+    }
+    dragging=false;
+  });
+  canvas.addEventListener('wheel',e=>{
+    e.preventDefault();
+    const factor=e.deltaY<0?1.1:0.91;
+    const rect=canvas.getBoundingClientRect();
+    const mx=e.clientX-rect.left, my=e.clientY-rect.top;
+    pan.x=mx-(mx-pan.x)*factor; pan.y=my-(my-pan.y)*factor;
+    scale=Math.max(0.15,Math.min(4,scale*factor));
+  },{passive:false});
+}
+
+function screenToWorld(sx,sy){return{wx:(sx-pan.x)/scale,wy:(sy-pan.y)/scale};}
+
+function hitTest(wx,wy) {
+  for(let i=nodes.length-1;i>=0;i--){
+    const n=nodes[i]; if(!n.visible) continue;
+    const dx=wx-n.x, dy=wy-n.y;
+    const r=n.shape==='hex'?NODE_R+6:Math.max(NODE_W/2,NODE_H/2)+4;
+    if(Math.hypot(dx,dy)<r) return n;
+  }
+  return null;
+}
+
+function selectNode(n){selectedNode=n; renderNodePanel(n);}
+
+function renderNodePanel(n) {
+  document.getElementById('snp-empty').style.display='none';
+  const content=document.getElementById('snp-content'); content.style.display='block';
+  const msColor=n.stats.ms<10?'var(--l4-col)':n.stats.ms<30?'var(--l5-col)':'var(--l3-col)';
+  const confColor=n.stats.conf>=80?'var(--l4-col)':n.stats.conf>=50?'var(--l5-col)':'var(--fail-col)';
+  const isFail=n.color===C.fail;
+  const badgeBg=isFail?`${C.fail}18`:`${n.color}18`;
+  const badgeBorder=isFail?`${C.fail}40`:`${n.color}40`;
+  content.innerHTML=`
+    <div class="snp-badge" style="background:${badgeBg};border:1px solid ${badgeBorder};color:${n.color};">
+      ${isFail?'⚠ FAILED EXP':'✓ LAYER '+(n.layer)} · ${n.shape.toUpperCase()}
+    </div>
+    <div class="snp-name">${n.label.replace('\n',' ')}</div>
+    <div class="snp-plain">${n.plain}</div>
+    <div class="snp-grid">
+      <div class="snp-metric"><div class="snp-m-label">Latency</div><div class="snp-m-val" style="color:${msColor}">${n.done&&n.stats.ms?n.stats.ms+'ms':'--'}</div></div>
+      <div class="snp-metric"><div class="snp-m-label">${isFail?'Val IoU':'Confidence'}</div><div class="snp-m-val" style="color:${confColor}">${n.done?n.stats.conf+'%':'--'}</div></div>
+      <div class="snp-metric" style="grid-column:span 2;"><div class="snp-m-label">Output Shape</div><div class="snp-m-val" style="color:var(--l1-col);font-size:10px;">${n.realStats.shape}</div></div>
+    </div>
+    <div class="io-section"><div class="io-label">Technical Detail</div><div class="io-box" style="color:var(--text);font-family:'Syne',sans-serif;font-size:9px;line-height:1.5;">${n.realStats.desc}</div></div>
+    ${n.parentId?`<div class="io-section"><div class="io-label">Parent</div><div class="io-box">${n.parentId}</div></div>`:''}
+  `;
+}
+
+// ════════════════════════════════════════════════════════════
+//  STREAM
+// ════════════════════════════════════════════════════════════
+function streamLog(type,step,tech,plain) {
+  const el=document.getElementById('stats-stream');
+  if(el.children.length===1&&el.children[0].textContent.includes('RUN PIPELINE'))el.innerHTML='';
+  const icons={info:'ℹ',ok:'✓',proc:'⟳',warn:'✗',result:'★',fail:'✗'};
+  const div=document.createElement('div');
+  div.className=`stream-entry se-${type}`;
+  div.innerHTML=`<div class="se-icon">${icons[type]||'·'}</div><div class="se-body"><div class="se-step" style="color:var(--text)">${step}</div><div class="se-text">${workerMode?plain:tech}</div>${!workerMode&&plain!==tech?`<div class="se-plain">${plain}</div>`:''}</div>`;
+  el.appendChild(div);
+  while(el.children.length>100)el.removeChild(el.firstChild);
+  el.scrollTop=el.scrollHeight;
+}
+
+function clearStream(){document.getElementById('stats-stream').innerHTML='<div style="color:var(--dim);font-size:9px;text-align:center;padding:12px 0;">Stream cleared</div>';}
+
+function setMode(m){
+  workerMode=m==='worker';
+  document.getElementById('expert-btn').classList.toggle('active',!workerMode);
+  document.getElementById('worker-btn').classList.toggle('active',workerMode);
+  if(selectedNode) renderNodePanel(selectedNode);
+}
+
+function zoom(f){const cx=canvas.width/2,cy=canvas.height/2;pan.x=cx-(cx-pan.x)*f;pan.y=cy-(cy-pan.y)*f;scale=Math.max(0.15,Math.min(4,scale*f));}
+
+// ════════════════════════════════════════════════════════════
+//  VIDEO PANEL
+// ════════════════════════════════════════════════════════════
+let selectedFile=null, resultBlobUrl=null, elapsedInterval=null, elapsedSeconds=0;
+
+function setupVideoPanel() {
+  const dz=document.getElementById('drop-zone');
+  dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag-over');});
+  dz.addEventListener('dragleave',()=>dz.classList.remove('drag-over'));
+  dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag-over');if(e.dataTransfer.files.length>0)setVideoFile(e.dataTransfer.files[0]);});
+  document.getElementById('file-input').addEventListener('change',function(){if(this.files.length>0)setVideoFile(this.files[0]);});
+  document.getElementById('vp-predict-btn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();sendFile();});
+}
+
+function setVideoFile(file) {
+  if(!file.type.startsWith('image/')&&!file.type.startsWith('video/')){streamLog('warn','VID','Invalid file type','Only image and video files accepted');return;}
+  if(resultBlobUrl){URL.revokeObjectURL(resultBlobUrl);resultBlobUrl=null;}
+  selectedFile=file;
+  const info=document.getElementById('vp-file-info');
+  info.textContent=`${file.name}  (${(file.size/1024/1024).toFixed(2)} MB)`;info.classList.add('has-file');
+  document.getElementById('vp-predict-btn').disabled=false;
+  document.getElementById('vp-result-area').classList.remove('visible');
+  document.getElementById('vp-badge').textContent='READY';document.getElementById('vp-badge').className='vp-badge';
+  const vp=document.getElementById('pred-video');vp.pause();vp.removeAttribute('src');vp.load();vp.style.display='none';
+  document.getElementById('pred-img').removeAttribute('src');document.getElementById('pred-img').style.display='none';
+  streamLog('info','VID',`File selected: ${file.name}`,`Ready to run segmentation on ${file.type.startsWith('video/')?'video':'image'}`);
+}
+
+function startElapsedTimer(){elapsedSeconds=0;updateElapsedDisplay();elapsedInterval=setInterval(()=>{elapsedSeconds++;updateElapsedDisplay();},1000);}
+function stopElapsedTimer(){if(elapsedInterval){clearInterval(elapsedInterval);elapsedInterval=null;}}
+function updateElapsedDisplay(){const m=String(Math.floor(elapsedSeconds/60)).padStart(2,'0'),s=String(elapsedSeconds%60).padStart(2,'0');const el=document.getElementById('vp-elapsed');if(el)el.textContent=`${m}:${s} elapsed`;}
+
+async function sendFile() {
+  const fileInput=document.getElementById('file-input');
+  const endpointVal=document.getElementById('vp-endpoint').value.trim();
+  const predictBtn=document.getElementById('vp-predict-btn');
+  const loadingOverlay=document.getElementById('vp-loading-overlay');
+  const loadingText=document.getElementById('vp-loading-text');
+  const loadingSub=document.getElementById('vp-loading-sub');
+  const resultArea=document.getElementById('vp-result-area');
+  const videoPlayer=document.getElementById('pred-video');
+  const imgPlayer=document.getElementById('pred-img');
+  const progressBar=document.getElementById('vp-progress-bar');
+  const progressFill=document.getElementById('vp-progress-fill');
+  const badge=document.getElementById('vp-badge');
+  const file=fileInput.files[0]||selectedFile;
+  if(!file)return;
+  const isVideo=file.type.startsWith('video/');
+  predictBtn.disabled=true; progressBar.classList.add('visible'); progressFill.style.width='5%';
+  resultArea.classList.add('visible'); videoPlayer.style.display='none'; imgPlayer.style.display='none';
+  loadingOverlay.classList.add('visible'); badge.textContent='SENDING'; badge.className='vp-badge processing';
+  loadingText.textContent='Uploading to Server'; loadingSub.textContent=`Sending ${file.name} (${(file.size/1024/1024).toFixed(1)} MB)…`;
+  document.getElementById('vp-hud-label').textContent='PROCESSING...'; startElapsedTimer();
+  streamLog('info','VID',`POST ${endpointVal}`,`Uploading ${file.name} and waiting for segmentation…`);
+  let fakeProgress=5;
+  const fakeTimer=setInterval(()=>{
+    const step=fakeProgress<40?2:fakeProgress<70?0.8:0.2;
+    fakeProgress=Math.min(85,fakeProgress+step); progressFill.style.width=fakeProgress+'%';
+    if(elapsedSeconds===5){loadingText.textContent='Processing on Server';loadingSub.textContent='DINOv2 + ConvNeXt running frame-by-frame inference…';badge.textContent='INFERRING';}
+    if(elapsedSeconds===30)loadingSub.textContent='Still processing — large videos can take several minutes…';
+  },800);
+  try {
+    const formData=new FormData(); formData.append('file',file);
+    const response=await fetch(endpointVal,{method:'POST',body:formData});
+    clearInterval(fakeTimer);
+    if(!response.ok){let errMsg=`HTTP ${response.status} ${response.statusText}`;try{const j=await response.json();errMsg=j.detail||j.error||errMsg;}catch(_){}throw new Error(errMsg);}
+    loadingText.textContent='Receiving Result'; loadingSub.textContent='Downloading processed output…'; progressFill.style.width='90%';
+    const blob=await response.blob();
+    if(blob.size===0)throw new Error('Server returned an empty file.');
+    const mimeType=isVideo?(blob.type.startsWith('video/')?blob.type:'video/mp4'):(blob.type.startsWith('image/')?blob.type:'image/png');
+    const fixedBlob=new Blob([blob],{type:mimeType});
+    if(resultBlobUrl)URL.revokeObjectURL(resultBlobUrl); resultBlobUrl=URL.createObjectURL(fixedBlob);
+    progressFill.style.width='100%';
+    if(isVideo){
+      videoPlayer.src=resultBlobUrl;
+      await new Promise(resolve=>{const onReady=()=>{videoPlayer.removeEventListener('canplay',onReady);resolve();};videoPlayer.addEventListener('canplay',onReady);videoPlayer.load();setTimeout(resolve,6000);});
+      videoPlayer.style.display='block'; imgPlayer.style.display='none'; videoPlayer.play().catch(()=>{});
+    } else {
+      await new Promise(resolve=>{imgPlayer.onload=resolve;imgPlayer.onerror=resolve;imgPlayer.src=resultBlobUrl;setTimeout(resolve,4000);});
+      imgPlayer.style.display='block'; videoPlayer.style.display='none';
+    }
+    document.getElementById('vp-hud-label').textContent='SEGMENTATION OUTPUT';
+    loadingOverlay.classList.remove('visible'); progressBar.classList.remove('visible');
+    badge.textContent='DONE'; badge.className='vp-badge'; stopElapsedTimer();
+    streamLog('result','VID',`Segmentation complete · ${elapsedSeconds}s`,`Result received — ${isVideo?'video':'image'} displayed`);
+  } catch(err) {
+    clearInterval(fakeTimer); stopElapsedTimer();
+    loadingText.textContent='Request Failed'; loadingSub.textContent=err.message;
+    badge.textContent='ERROR'; badge.className='vp-badge'; badge.style.borderColor='var(--l3-col)'; badge.style.color='var(--l3-col)';
+    streamLog('warn','VID','Prediction failed: '+err.message,'Check: Is FastAPI running? Is the endpoint URL correct?');
+    setTimeout(()=>{loadingOverlay.classList.remove('visible');progressBar.classList.remove('visible');badge.style.borderColor='';badge.style.color='';predictBtn.disabled=false;},4000);
+  }
+}
+
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+
+init();
+</script>
+</body>
+</html>
