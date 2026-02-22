@@ -264,7 +264,7 @@ function App() {
         const onReady = () => finish(true)
         const onError = () => finish(false)
         readinessMonitor = window.setInterval(() => {
-          if (player.readyState >= 2 && player.videoWidth > 0) finish(true)
+          if (player.readyState >= 1 && player.videoWidth > 0) finish(true)
         }, 250)
         player.addEventListener('loadedmetadata', onReady)
         player.addEventListener('loadeddata', onReady)
@@ -275,8 +275,8 @@ function App() {
       })
 
       setFixedVideoSource(processedUrl, previewReady ? 'Processed output' : 'Processed output (download)', true)
-      setShowResultVideo(previewReady)
-      if (previewReady && player) {
+      setShowResultVideo(true)
+      if (player) {
         player.play().catch(() => {})
       }
     } catch (error) {

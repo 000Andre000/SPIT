@@ -175,6 +175,7 @@ def transcode_to_browser_mp4(input_path: str, output_path: str):
         ffmpeg_bin,
         "-y",
         "-i", input_path,
+        "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
         "-c:v", "libx264",
         "-pix_fmt", "yuv420p",
         "-movflags", "+faststart",
@@ -233,6 +234,10 @@ async def predict_video(
             fps = 30
         frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        output_width = frame_width if frame_width % 2 == 0 else frame_width - 1
+        output_height = frame_height if frame_height % 2 == 0 else frame_height - 1
+        output_width = max(output_width, 2)
+        output_height = max(output_height, 2)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         total_frames = max(total_frames, 1)
 
@@ -245,8 +250,10 @@ async def predict_video(
         })
         
         print(f"Processing video: {total_frames} frames @ {fps}fps, {frame_width}x{frame_height}")
+        if output_width != frame_width or output_height != frame_height:
+            print(f"Adjusting output resolution for browser playback: {output_width}x{output_height}")
 
-        out_video, active_codec = create_video_writer(temp_output_path, fps, (frame_width, frame_height))
+        out_video, active_codec = create_video_writer(temp_output_path, fps, (output_width, output_height))
         if out_video is None:
             raise HTTPException(status_code=500, detail="Failed to initialize video encoder for output")
 
@@ -271,6 +278,8 @@ async def predict_video(
             colored_mask = mask_to_color(pred)
             colored_mask = cv2.resize(colored_mask, (frame_width, frame_height), interpolation=cv2.INTER_NEAREST)
             overlay = cv2.addWeighted(frame, 1 - ALPHA, colored_mask, ALPHA, 0)
+            if output_width != frame_width or output_height != frame_height:
+                overlay = cv2.resize(overlay, (output_width, output_height), interpolation=cv2.INTER_AREA)
             
             # Write frame
             out_video.write(overlay)
