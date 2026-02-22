@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+    #!/usr/bin/env node
 // Batch-convert videos in frontend/public/videos to MP4 (H.264 + AAC)
 // Usage: node scripts/convert_videos.js
 // Requires: ffmpeg available in PATH
