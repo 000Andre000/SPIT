@@ -34,35 +34,35 @@
   // ═══════════════════════════════════════════════════════════════
   const INITIAL_NODES = [
     // Shared: Dataset & Preprocessing
-    { id:"dataset",      group:"shared",    layer:0, color:C.data,   shape:"hex",
+    { id:"dataset",      group:"shared",    layer:0, color:C.data,   
       label:"DESERT\nDATASET",         sublabel:"Synthetic · 10 classes",
       metric:"10 classes", mLabel:"Classes",  shapeOut:"960×540 RGB",   ms:0,
       parentId:null,
       desc:"Synthetic digital-twin desert dataset. 10 semantic classes: Sky (37.64%), Landscape (24.45%), Rocks (1.20%), Dry Bushes (1.10%), Logs (0.08%). Highly imbalanced — rare classes are safety-critical for UGV navigation.",
       plain:"Raw synthetic desert images with pixel-level terrain labels." },
 
-    { id:"brightness",   group:"shared",    layer:1, color:C.pre,    shape:"rect",
+    { id:"brightness",   group:"shared",    layer:1, color:C.pre,
       label:"BRIGHTNESS\nNORMALISE",   sublabel:"Gamma + histogram eq",
       metric:"100%",      mLabel:"Pass rate", shapeOut:"960×540 float32", ms:3,
       parentId:"dataset",
       desc:"Gamma and histogram normalisation to balance synthetic brightness. Prevents the model from learning exposure artefacts instead of terrain features.",
       plain:"Fixes lighting so shadows and bright sky do not confuse the model." },
 
-    { id:"dehazing",     group:"shared",    layer:1, color:C.pre,    shape:"rect",
+    { id:"dehazing",     group:"shared",    layer:1, color:C.pre,   
       label:"DEHAZING",                sublabel:"Dark-channel prior",
       metric:"100%",      mLabel:"Pass rate", shapeOut:"960×540 float32", ms:5,
       parentId:"brightness",
       desc:"Dark-channel prior dehazing removes atmospheric noise from synthetic desert renders. Improves edge clarity for small obstacles.",
       plain:"Removes foggy haze so small rocks and logs are clearly visible." },
 
-    { id:"class_weight", group:"shared",    layer:1, color:C.pre,    shape:"rect",
+    { id:"class_weight", group:"shared",    layer:1, color:C.pre,   
       label:"CLASS\nWEIGHTING",        sublabel:"MFB · w=median(f)/f",
       metric:"MFB",       mLabel:"Method",    shapeOut:"10-dim weights",  ms:1,
       parentId:"dehazing",
       desc:"Median Frequency Balancing: w = median(freq)/freq. Sky & Landscape get low weights; Logs and Rocks get high weights (max=10). Prevents model from ignoring safety-critical rare classes.",
       plain:"Tells the model to care more about rare dangerous obstacles." },
 
-    { id:"rand_crop",    group:"shared",    layer:1, color:C.pre,    shape:"rect",
+    { id:"rand_crop",    group:"shared",    layer:1, color:C.pre, 
       label:"RANDOM\nCROP",            sublabel:"Divisible by 14 · hi-res",
       metric:"÷14",       mLabel:"Patch align",shapeOut:"Cropped patch",  ms:2,
       parentId:"class_weight",
@@ -70,21 +70,21 @@
       plain:"Randomly zooms in so the model learns to spot small rocks and logs." },
 
     // Model Branch 1 — Weighted Cross-Entropy
-    { id:"xent_root",    group:"xent",      layer:2, color:C.xent,   shape:"hex",
+    { id:"xent_root",    group:"xent",      layer:2, color:C.xent,  
       label:"CROSS-ENTROPY\nLOSS",     sublabel:"Experiment ①",
       metric:"~5%",       mLabel:"Val mIoU",  shapeOut:"[1,10,H,W]",    ms:45,
       parentId:"rand_crop",
       desc:"Standard weighted cross-entropy: L = -Σ w_c·y_c·log(p_c). Bias toward dominant classes (Sky, Landscape) persisted. Small obstacles still poorly detected.",
       plain:"First attempt — weighted penalty for wrong predictions. Struggled with rare obstacles." },
 
-    { id:"xent_enc",     group:"xent",      layer:3, color:C.xent,   shape:"rect",
+    { id:"xent_enc",     group:"xent",      layer:3, color:C.xent, 
       label:"CNN\nENCODER",            sublabel:"Basic backbone",
       metric:"weak",      mLabel:"Repr",      shapeOut:"Feature maps",   ms:30,
       parentId:"xent_root",
       desc:"Basic CNN encoder without pretrained weights. Lacked semantic richness for 10 visually similar desert terrain classes. Identified as the primary bottleneck.",
       plain:"Basic image reader — not powerful enough for complex desert terrain." },
 
-    { id:"xent_out",     group:"xent",      layer:3, color:C.xent,   shape:"rect",
+    { id:"xent_out",     group:"xent",      layer:3, color:C.xent,   
       label:"CLASS MAP\n~5% IoU",      sublabel:"Biased to sky & landscape",
       metric:"~5%",       mLabel:"mIoU",      shapeOut:"[1,10,H,W]",    ms:5,
       parentId:"xent_enc",
@@ -92,21 +92,21 @@
       plain:"Pixel labels produced — very low accuracy on dangerous rare obstacles." },
 
     // Model Branch 2 — Focal Loss
-    { id:"focal_root",   group:"focal",     layer:2, color:C.focal,  shape:"hex",
+    { id:"focal_root",   group:"focal",     layer:2, color:C.focal,  
       label:"FOCAL\nLOSS",             sublabel:"Experiment ② · γ focusing",
       metric:"5.11%",     mLabel:"Val mIoU",  shapeOut:"[1,10,H,W]",    ms:42,
       parentId:"rand_crop",
       desc:"FL = -α(1−pt)^γ·log(pt). Down-weights easy pixels, focuses on hard misclassifications. Train Loss=1.4084, Val Loss=1.3919. IoU=0.0511, Dice=0.0871, PixAcc=0.0955.",
       plain:"Focal Loss focuses on hard-to-classify pixels. Better than cross-entropy but still limited." },
 
-    { id:"focal_enc",    group:"focal",     layer:3, color:C.focal,  shape:"rect",
+    { id:"focal_enc",    group:"focal",     layer:3, color:C.focal, 
       label:"CNN\nENCODER",            sublabel:"Same backbone · bottleneck",
       metric:"weak",      mLabel:"Repr",      shapeOut:"Feature maps",   ms:28,
       parentId:"focal_root",
       desc:"Same basic CNN encoder as Experiment 1. Despite better loss dynamics from Focal Loss, the encoder still lacked depth for challenging off-road terrain.",
       plain:"Same basic image reader — the loss improved but backbone was still the problem." },
 
-    { id:"focal_out",    group:"focal",     layer:3, color:C.focal,  shape:"rect",
+    { id:"focal_out",    group:"focal",     layer:3, color:C.focal,  
       label:"VAL METRICS\nIoU 0.051",  sublabel:"Dice 0.087 · PixAcc 0.095",
       metric:"5.11%",     mLabel:"mIoU",      shapeOut:"[1,10,H,W]",    ms:5,
       parentId:"focal_enc",
@@ -114,28 +114,28 @@
       plain:"The numbers confirmed the backbone was the real problem — not the loss function." },
 
     // Model Branch 3 — DINOv2 + ConvNeXt (WINNING)
-    { id:"dino_root",    group:"dinov2",    layer:2, color:C.dino,   shape:"hex",
+    { id:"dino_root",    group:"dinov2",    layer:2, color:C.dino, 
       label:"DINOv2\nBACKBONE ★",     sublabel:"ViT-S/14 · 21M · FROZEN",
       metric:"94%",       mLabel:"Confidence",shapeOut:"[1,646,384]",   ms:42,
       parentId:"rand_crop",
       desc:"Pretrained DINOv2 ViT-S/14 frozen feature extractor. Self-supervised pretraining gives rich patch-level semantic embeddings. Freezing prevents overfitting and reduces training cost.",
       plain:"Powerful pretrained AI brain — understands terrain textures without extra training." },
 
-    { id:"dino_attn",    group:"dinov2",    layer:3, color:C.dino,   shape:"rect",
+    { id:"dino_attn",    group:"dinov2",    layer:3, color:C.dino,  
       label:"SELF-ATTENTION\n646 patches",sublabel:"6 heads · 12 layers",
       metric:"646 tokens",mLabel:"Patch tokens",shapeOut:"[1,646,384]", ms:28,
       parentId:"dino_root",
       desc:"Image divided into 34×19=646 patches of 14×14 pixels. Multi-head self-attention propagates context across all patches. A rock patch attends to surrounding terrain for accurate scene understanding.",
       plain:"Each image patch looks at every other patch to understand its full context." },
 
-    { id:"convnext",     group:"dinov2",    layer:3, color:C.dino,   shape:"rect",
+    { id:"convnext",     group:"dinov2",    layer:3, color:C.dino,   
       label:"ConvNeXt\nSEG HEAD",      sublabel:"7×7 stem → DW → 1×1 → ↑",
       metric:"88%",       mLabel:"Confidence",shapeOut:"[1,10,H,W]",   ms:14,
       parentId:"dino_attn",
       desc:"ConvNeXt-style segmentation head: reshape 646 tokens → 7×7 depthwise conv (384→128ch) → depthwise-separable block → 1×1 classifier (128→10) → bilinear upsample to full resolution.",
       plain:"Translates DINOv2 features into a per-pixel terrain label for every part of the image." },
 
-    { id:"dino_out",     group:"dinov2",    layer:3, color:C.dino,   shape:"rect",
+    { id:"dino_out",     group:"dinov2",    layer:3, color:C.dino,  
       label:"PIXEL\nCLASS MAP",        sublabel:"Best results · rare class IoU ↑",
       metric:"high",      mLabel:"mIoU",      shapeOut:"[1,10,266,476]",ms:4,
       parentId:"convnext",
@@ -143,28 +143,28 @@
       plain:"Every pixel labelled — best accuracy of all four models." },
 
     // Model Branch 4 — SegFormer
-    { id:"seg_root",     group:"segformer", layer:2, color:C.seg,    shape:"hex",
+    { id:"seg_root",     group:"segformer", layer:2, color:C.seg,  
       label:"SegFormer",               sublabel:"MiT encoder · MLP decoder",
       metric:"86%",       mLabel:"Confidence",shapeOut:"[1,10,H,W]",   ms:38,
       parentId:"rand_crop",
       desc:"End-to-end transformer segmentation. MiT encoder extracts features at 4 scales without positional encoding — robust to resolution variation. Lightweight all-MLP decoder fuses scales efficiently.",
       plain:"An all-in-one fast model reading the image at 4 zoom levels simultaneously." },
 
-    { id:"mit_enc",      group:"segformer", layer:3, color:C.seg,    shape:"rect",
+    { id:"mit_enc",      group:"segformer", layer:3, color:C.seg,  
       label:"MiT\nENCODER",           sublabel:"4-scale · no pos encoding",
       metric:"4 scales",  mLabel:"Feature scales",shapeOut:"H/4,H/8,H/16,H/32",ms:22,
       parentId:"seg_root",
       desc:"Mix Transformer hierarchical encoder: features at 1/4, 1/8, 1/16, 1/32 resolution. No positional encoding makes it robust to varying image sizes in off-road deployments.",
       plain:"Reads the image at 4 zoom levels — captures both big patterns and fine details." },
 
-    { id:"mlp_dec",      group:"segformer", layer:3, color:C.seg,    shape:"rect",
+    { id:"mlp_dec",      group:"segformer", layer:3, color:C.seg,   
       label:"MLP\nDECODER",           sublabel:"Lightweight fusion · fast",
       metric:"fast",      mLabel:"Inference", shapeOut:"[1,10,H,W]",   ms:10,
       parentId:"mit_enc",
       desc:"All-MLP decoder fuses 4 encoder feature scales into a unified segmentation map. Much lighter than UPerNet or FPN decoders while maintaining competitive accuracy.",
       plain:"Combines all zoom-level features quickly into one final segmentation map." },
 
-    { id:"seg_out",      group:"segformer", layer:3, color:C.seg,    shape:"rect",
+    { id:"seg_out",      group:"segformer", layer:3, color:C.seg,   
       label:"PIXEL\nCLASS MAP",       sublabel:"Competitive · scale-robust",
       metric:"86%",       mLabel:"Confidence",shapeOut:"[1,10,H,W]",   ms:6,
       parentId:"mlp_dec",
@@ -172,35 +172,35 @@
       plain:"Every pixel labelled — fast and accurate alternative to the DINOv2 path." },
 
     // Convergence + Navigation
-    { id:"collision",    group:"shared",    layer:4, color:C.nav,    shape:"hex",
+    { id:"collision",    group:"shared",    layer:4, color:C.nav,   
       label:"COLLISION\nDETECTION",    sublabel:"All models converge here",
       metric:"4-neigh",   mLabel:"Check method",shapeOut:"Risk: LOW/MED/HIGH",ms:6,
       parentId:null,
       desc:"All four model outputs converge here. Semantic class map analysed: Logs and Rocks flagged as BLOCKED. 4-neighbour proximity scan checks each path candidate. Outputs risk level: LOW / MED / HIGH.",
       plain:"All models feed here — checks which terrain areas are dangerous for the UGV." },
 
-    { id:"cost_map",     group:"shared",    layer:5, color:C.nav,    shape:"rect",
+    { id:"cost_map",     group:"shared",    layer:5, color:C.nav,  
       label:"COST MAP\nTerrain→Cost",  sublabel:"Traversability grid",
       metric:"48×30",     mLabel:"Grid size", shapeOut:"48×30 float grid",ms:5,
       parentId:"collision",
       desc:"Maps 10 class IDs to movement costs: Sky=∞, Log=∞, Rock=high, DryBush=medium, Landscape=low. Coarse 48×30 grid derived by max-pooling cost within each cell.",
       plain:"Creates a difficulty grid — green for easy terrain, red for blocked obstacles." },
 
-    { id:"astar",        group:"shared",    layer:5, color:C.plan,   shape:"hex",
+    { id:"astar",        group:"shared",    layer:5, color:C.plan, 
       label:"A* PATH\nPLANNING",       sublabel:"f(n) = g(n) + h(n)",
       metric:"Manhattan", mLabel:"Heuristic", shapeOut:"Path: N waypoints",ms:28,
       parentId:"cost_map",
       desc:"A* graph search on the 48×30 cost grid with Manhattan heuristic. Finds minimum-cost path from UGV position to goal. Avoids BLOCKED cells (logs, rocks). Produces ordered waypoints.",
       plain:"Finds the safest, lowest-cost route through the terrain to the destination." },
 
-    { id:"waypoint",     group:"shared",    layer:5, color:C.plan,   shape:"rect",
+    { id:"waypoint",     group:"shared",    layer:5, color:C.plan, 
       label:"NEXT\nWAYPOINT",          sublabel:"Path[0] → heading + speed",
       metric:"30 Hz",     mLabel:"Update rate",shapeOut:"(x,y) + heading°",ms:2,
       parentId:"astar",
       desc:"First node on the A* path issued as next waypoint. Includes: target (x,y), heading angle, recommended speed %. Sent to motor controller at up to 30Hz.",
       plain:"Picks the very next position the UGV should move to and at what speed." },
 
-    { id:"ugv_move",     group:"shared",    layer:6, color:C.result, shape:"hex",
+    { id:"ugv_move",     group:"shared",    layer:6, color:C.result,
       label:"UGV\nMOVEMENT",           sublabel:"PROCEED / HALT · 30Hz",
       metric:"30 Hz",     mLabel:"Control rate",shapeOut:"Motor CMD",     ms:2,
       parentId:"waypoint",
@@ -445,12 +445,26 @@
   // ═══════════════════════════════════════════════════════════════
   function DetailsPanel({ node, onClose }) {
     if (!node) return null;
+    // default placeholders for common model output nodes
+    const PLACEHOLDER_MAP = {
+      xent_out: `<svg xmlns='http://www.w3.org/2000/svg' width='640' height='360'><rect width='100%' height='100%' fill='#07121a'/><text x='50%' y='50%' fill='#fb923c' font-family='JetBrains Mono, monospace' font-size='20' font-weight='700' text-anchor='middle' dominant-baseline='middle'>Cross-Entropy Metrics</text></svg>`,
+      focal_out: `<svg xmlns='http://www.w3.org/2000/svg' width='640' height='360'><rect width='100%' height='100%' fill='#07121a'/><text x='50%' y='50%' fill='#f97316' font-family='JetBrains Mono, monospace' font-size='20' font-weight='700' text-anchor='middle' dominant-baseline='middle'>Focal Loss Metrics</text></svg>`,
+      dino_out:  `<svg xmlns='http://www.w3.org/2000/svg' width='640' height='360'><rect width='100%' height='100%' fill='#07121a'/><text x='50%' y='50%' fill='#a855f7' font-family='JetBrains Mono, monospace' font-size='20' font-weight='700' text-anchor='middle' dominant-baseline='middle'>DINOv2 Metrics</text></svg>`,
+      seg_out:   `<svg xmlns='http://www.w3.org/2000/svg' width='640' height='360'><rect width='100%' height='100%' fill='#07121a'/><text x='50%' y='50%' fill='#38bdf8' font-family='JetBrains Mono, monospace' font-size='20' font-weight='700' text-anchor='middle' dominant-baseline='middle'>SegFormer Metrics</text></svg>`,
+    };
+    const getPlaceholderDataUrl = id => {
+      const svg = PLACEHOLDER_MAP[id];
+      if (!svg) return null;
+      return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+    };
     const fieldView = (label, value) => (
       <div style={{ marginBottom: 8 }}>
         <div style={{ fontSize: 7, letterSpacing: "1.5px", color: "#2a4a60", textTransform: "uppercase", marginBottom: 4 }}>{label}</div>
         <div style={{ fontSize: 11, color: "#cfeaf8", fontFamily: "'JetBrains Mono', monospace", whiteSpace: "pre-wrap" }}>{value ?? "—"}</div>
       </div>
     );
+
+    const imgSrc = node.metricImage || node.metricImageUrl || getPlaceholderDataUrl(node.id);
 
     return (
       <div style={{
@@ -468,6 +482,22 @@
           </span>
           <button onClick={onClose} style={{ ...btnStyle, marginLeft: "auto", padding: "2px 8px", fontSize: 10 }}>✕</button>
         </div>
+        {imgSrc && (
+          <div style={{ padding: 12 }}>
+            <img src={imgSrc} alt="metrics" style={{ width: "100%", borderRadius: 4, border: "1px solid rgba(255,255,255,0.03)", background: "#000" }} />
+          </div>
+        )}
+
+        {/* video output (if present) */}
+        {(node.metricVideo || node.metricVideoUrl) && (
+          <div style={{ padding: 12 }}>
+            <video
+              src={node.metricVideo || node.metricVideoUrl}
+              controls
+              style={{ width: "100%", borderRadius: 4, background: "#000" }}
+            />
+          </div>
+        )}
 
         <div style={{ padding: "14px 14px", flex: 1, overflowY: "auto", }}>
           {fieldView("Label", node.label)}
@@ -508,6 +538,39 @@
     fontWeight: 700, cursor: "pointer", borderRadius: 2, textTransform: "uppercase",
     transition: "all 0.2s",
   };
+
+  // ═══════════════════════════════════════════════════════════════
+  //  VIDEO UI: modal player and videos tray
+  // ═══════════════════════════════════════════════════════════════
+  function VideoModal({ src, onClose }) {
+    if (!src) return null;
+    return (
+      <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.7)", zIndex: 300 }}>
+        <div style={{ width: "80%", maxWidth: 900, background: "#070d14", border: "1px solid #1a3550", padding: 12, borderRadius: 6 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <button onClick={onClose} style={{ ...btnStyle, width: "auto", padding: "6px 10px" }}>Close</button>
+          </div>
+          <video src={src} controls autoPlay style={{ width: "100%", background: "#000" }} />
+        </div>
+      </div>
+    );
+  }
+
+  function VideosTray({ nodesWithVideo, onPlay }) {
+    if (!nodesWithVideo || nodesWithVideo.length === 0) return null;
+    return (
+      <div style={{ position: "absolute", bottom: 16, left: 16, background: "rgba(7,13,20,0.9)", border: "1px solid #1a3550", padding: 8, borderRadius: 4, zIndex: 40 }}>
+        <div style={{ fontSize: 8, color: "#2a4a60", textTransform: "uppercase", marginBottom: 6 }}>Videos</div>
+        <div style={{ display: "flex", gap: 6 }}>
+          {nodesWithVideo.map(n => (
+            <button key={n.id} onClick={() => onPlay(n.metricVideo || n.metricVideoUrl)} style={{ ...btnStyle, padding: "6px 8px", width: 110, fontSize: 11 }}>
+              {n.label.split("\n")[0]}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   // ═══════════════════════════════════════════════════════════════
   //  ADD NODE MODAL
@@ -674,6 +737,10 @@
     const [addingChildTo, setAddingChildTo] = useState(null);
     const [showAddModal, setShowAddModal] = useState(false);
 
+    // Video player state
+    const [videoSrc, setVideoSrc] = useState(null);
+
+
     // Pan / zoom
     const [pan, setPan] = useState({ x: 0, y: 0 });
     const [zoom, setZoom] = useState(0.9);
@@ -714,6 +781,8 @@
 
     const visibleIds = useMemo(() => getVisibleIds(nodes, activeModel), [nodes, activeModel]);
     const visibleNodes = useMemo(() => nodes.filter(n => visibleIds.includes(n.id)), [nodes, visibleIds]);
+
+    const nodesWithVideo = useMemo(() => nodes.filter(n => n.metricVideo || n.metricVideoUrl), [nodes]);
 
     // Build edges
     const edges = useMemo(() => {
@@ -961,6 +1030,10 @@
               onCancel={() => { setShowAddModal(false); setAddingChildTo(null); }}
             />
           )}
+
+          {/* Videos tray + modal */}
+          <VideosTray nodesWithVideo={nodesWithVideo.filter(n => visibleIds.includes(n.id))} onPlay={src => setVideoSrc(src)} />
+          <VideoModal src={videoSrc} onClose={() => setVideoSrc(null)} />
         </div>
       </div>
     );
