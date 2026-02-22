@@ -4,6 +4,7 @@ import UGVPipelineGraph from './UGVPipelineGraph'
 
 function App() {
   const [endpoint, setEndpoint] = useState('http://localhost:8000/predict/video')
+  const [runModel, setRunModel] = useState<'default' | 'final'>('default')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [uploadedPreviewUrl, setUploadedPreviewUrl] = useState<string | null>(null)
   const [resultBlobUrl, setResultBlobUrl] = useState<string | null>(null)
@@ -78,6 +79,10 @@ function App() {
   const sendFile = async () => {
     if (!selectedFile || isProcessing) return
 
+    const resolvedEndpoint = runModel === 'final' 
+      ? 'http://localhost:8000/predict/video/final'
+      : 'http://localhost:8000/predict/video'
+
     const requestId = (window.crypto && 'randomUUID' in window.crypto)
       ? window.crypto.randomUUID()
       : `req_${Date.now()}_${Math.floor(Math.random() * 1000000)}`
@@ -99,7 +104,7 @@ function App() {
 
     const progressUrl = (() => {
       try {
-        const endpointUrl = new URL(endpoint, window.location.href)
+        const endpointUrl = new URL(resolvedEndpoint, window.location.href)
         return `${endpointUrl.origin}/predict/progress/${encodeURIComponent(requestId)}`
       } catch {
         return ''
@@ -186,7 +191,7 @@ function App() {
           isRequestActiveRef.current = false
           if (processingInterval) window.clearInterval(processingInterval)
           stopProgressPolling()
-          reject(new Error(`Network error. Ensure FastAPI server is running at ${endpoint}`))
+          reject(new Error(`Network error. Ensure FastAPI server is running at ${resolvedEndpoint}`))
         }
         req.onabort = () => {
           isRequestActiveRef.current = false
@@ -201,7 +206,7 @@ function App() {
           reject(new Error('Request timed out while waiting for processing to finish'))
         }
 
-        req.open('POST', endpoint)
+        req.open('POST', resolvedEndpoint)
         req.setRequestHeader('X-Request-ID', requestId)
         req.responseType = 'blob'
         req.timeout = 600000
@@ -321,6 +326,18 @@ function App() {
               onChange={(event) => setEndpoint(event.target.value)}
               placeholder="http://localhost:8000/predict/video"
             />
+          </div>
+
+          <div className="control-row">
+            <label htmlFor="model-select">Model</label>
+            <select 
+              id="model-select" 
+              value={runModel} 
+              onChange={(e) => setRunModel(e.target.value as 'default' | 'final')}
+            >
+              <option value="default">Default (DINOv2 + ConvNeXt)</option>
+              <option value="final">Final (Router: SegFormer + DINO)</option>
+            </select>
           </div>
 
           <div className="control-row">

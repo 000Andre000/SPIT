@@ -12,6 +12,7 @@ import os
 import uuid
 import json
 import subprocess
+import sys
 from io import BytesIO
 from pathlib import Path
 
@@ -357,3 +358,85 @@ async def predict_progress(request_id: str):
     if request_id not in JOB_PROGRESS:
         raise HTTPException(status_code=404, detail="Progress not found for request")
     return JOB_PROGRESS[request_id]
+
+
+def run_final_model_script(input_path: str, output_path: str, job_id: str = None):
+    import re
+    script_path = BASE_DIR / "test_segmentation.py"
+    if not script_path.exists():
+        return False, f"Missing script: {script_path}"
+
+    venv_python = BASE_DIR / "env" / "Scripts" / "python.exe"
+    python_bin = str(venv_python if venv_python.exists() else Path(sys.executable))
+    input_abs = str(Path(input_path).resolve())
+    output_abs = str(Path(output_path).resolve())
+
+    cmd = [
+        python_bin,
+        "-u",  # Unbuffered output for real-time progress
+        str(script_path),
+        "--input",
+        input_abs,
+        "--output",
+        output_abs,
+    ]
+
+    try:
+        # Stream stdout to parse frame progress in real-time
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            cwd=str(BASE_DIR)
+        )
+
+        stdout_lines = []
+        stderr_lines = []
+        
+        # Read stdout line by line and parse frame progress
+        while True:
+            line = process.stdout.readline()
+            if not line:
+                break
+            stdout_lines.append(line)
+            
+            # Parse "Frame X/Y (Z%)" progress lines
+            match = re.search(r'Frame\s+(\d+)/(\d+)\s+\((\d+)%\)', line)
+            if match and job_id:
+                current = int(match.group(1))
+                total = int(match.group(2))
+                percent = int(match.group(3))
+                JOB_PROGRESS[job_id].update({
+                    "status": "processing",
+                    "frame": current,
+                    "total_frames": total,
+                    "percent": percent,
+                    "message": f"Processing frame {current}/{total}"
+                })
+
+        # Wait for process to complete
+        process.wait()
+        
+        # Capture any stderr
+        if process.stderr:
+            stderr_lines = process.stderr.readlines()
+
+        if process.returncode != 0:
+            stderr_text = ''.join(stderr_lines)
+            stdout_text = ''.join(stdout_lines)
+            tail = (stderr_text or stdout_text or "Unknown error")[-1200:]
+            return False, tail
+        return True, "ok"
+    except Exception as exc:
+        return False, str(exc)
+
+
+@app.post("/predict/video/final")
+async def predict_video_final(
+    file: UploadFile = File(...),
+    request_id: str | None = Header(default=None, alias="X-Request-ID")
+):
+    """Same as default for now - unified pipeline"""
+    return await predict_video(file, request_id)

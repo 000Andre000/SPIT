@@ -214,6 +214,20 @@
   padding: 7px;
 }
 
+.control-row select {
+  background: #0b1520;
+  color: #d0e8f4;
+  border: 1px solid #1a3550;
+  border-radius: 4px;
+  padding: 8px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.control-row select:hover {
+  border-color: #2a5570;
+}
+
 .file-info {
   font-size: 11px;
   color: #00cfff;
