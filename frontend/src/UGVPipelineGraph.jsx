@@ -445,18 +445,15 @@
   // ═══════════════════════════════════════════════════════════════
   function DetailsPanel({ node, onClose }) {
     if (!node) return null;
-    // default placeholders for common model output nodes
+    // Use static images from `src/assets` as placeholders for common model outputs
     const PLACEHOLDER_MAP = {
-      xent_out: `<svg xmlns='http://www.w3.org/2000/svg' width='640' height='360'><rect width='100%' height='100%' fill='#07121a'/><text x='50%' y='50%' fill='#fb923c' font-family='JetBrains Mono, monospace' font-size='20' font-weight='700' text-anchor='middle' dominant-baseline='middle'>Cross-Entropy Metrics</text></svg>`,
-      focal_out: `<svg xmlns='http://www.w3.org/2000/svg' width='640' height='360'><rect width='100%' height='100%' fill='#07121a'/><text x='50%' y='50%' fill='#f97316' font-family='JetBrains Mono, monospace' font-size='20' font-weight='700' text-anchor='middle' dominant-baseline='middle'>Focal Loss Metrics</text></svg>`,
-      dino_out:  `<svg xmlns='http://www.w3.org/2000/svg' width='640' height='360'><rect width='100%' height='100%' fill='#07121a'/><text x='50%' y='50%' fill='#a855f7' font-family='JetBrains Mono, monospace' font-size='20' font-weight='700' text-anchor='middle' dominant-baseline='middle'>DINOv2 Metrics</text></svg>`,
-      seg_out:   `<svg xmlns='http://www.w3.org/2000/svg' width='640' height='360'><rect width='100%' height='100%' fill='#07121a'/><text x='50%' y='50%' fill='#38bdf8' font-family='JetBrains Mono, monospace' font-size='20' font-weight='700' text-anchor='middle' dominant-baseline='middle'>SegFormer Metrics</text></svg>`,
+      xent_out: new URL("./assets/cross_entropy.png", import.meta.url).href,
+      focal_out: new URL("./assets/foucalLoss.png", import.meta.url).href,
+      dino_out: new URL("./assets/baseline.png", import.meta.url).href,
+      seg_out: new URL("./assets/segformer.png", import.meta.url).href,
+      rand_crop: new URL("./assets/randormCorp.png", import.meta.url).href,
     };
-    const getPlaceholderDataUrl = id => {
-      const svg = PLACEHOLDER_MAP[id];
-      if (!svg) return null;
-      return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
-    };
+    const getPlaceholderDataUrl = id => PLACEHOLDER_MAP[id] || null;
     const fieldView = (label, value) => (
       <div style={{ marginBottom: 8 }}>
         <div style={{ fontSize: 7, letterSpacing: "1.5px", color: "#2a4a60", textTransform: "uppercase", marginBottom: 4 }}>{label}</div>
@@ -491,11 +488,10 @@
         {/* video output (if present) */}
         {(node.metricVideo || node.metricVideoUrl) && (
           <div style={{ padding: 12 }}>
-            <video
-              src={node.metricVideo || node.metricVideoUrl}
-              controls
-              style={{ width: "100%", borderRadius: 4, background: "#000" }}
-            />
+            <video controls preload="metadata" crossOrigin="anonymous" style={{ width: "100%", borderRadius: 4, background: "#000" }} onError={e => console.error('Video playback error', e)}>
+              <source src={node.metricVideo || node.metricVideoUrl} type={(node.metricVideo || node.metricVideoUrl).endsWith('.webm') ? 'video/webm' : 'video/mp4'} />
+              Your browser does not support the video tag.
+            </video>
           </div>
         )}
 
@@ -520,6 +516,45 @@
 
         <div style={{ padding: "10px 14px", borderTop: "1px solid #0f2035", display: "flex", gap: 8, flexShrink: 0 }}>
           <button onClick={onClose} style={{ ...btnStyle, flex: 1 }}>CLOSE</button>
+        </div>
+      </div>
+    );
+  }
+
+  function VideosSection({ videos, onPlay, onClose }) {
+    return (
+      <div style={{
+        position: "absolute", right: 0, top: 52, bottom: 0, width: 360,
+        background: "#061116", borderLeft: "1px solid #112334",
+        display: "flex", flexDirection: "column", zIndex: 60, overflowY: "auto",
+      }}>
+        <div style={{ padding: 12, borderBottom: "1px solid #0f2035", display: "flex", alignItems: "center" }}>
+          <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 13, color: "#d0e8f4" }}>Videos</span>
+          <button onClick={onClose} style={{ ...btnStyle, marginLeft: "auto", padding: "2px 8px", fontSize: 10 }}>✕</button>
+        </div>
+        <div style={{ padding: 12, display: "grid", gridTemplateColumns: "1fr", gap: 10 }}>
+          {(!videos || videos.length === 0) && <div style={{ color: "#7a9cb0", fontSize: 12 }}>No videos found in /videos. Place an index.json or video files in public/videos/</div>}
+          {videos.map(v => (
+            <div key={v.url} style={{ background: "#07121a", border: "1px solid #172a3a", padding: 8, borderRadius: 6 }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <div style={{ width: 140, height: 80, background: "#000", borderRadius: 4, overflow: "hidden", flexShrink: 0 }}>
+                  <video muted autoPlay loop playsInline preload="metadata" crossOrigin="anonymous" style={{ width: "100%", height: "100%", objectFit: "cover" }} ref={el => { /* keep ref-free */ }} onError={e => { try { const el = e?.target || e?.currentTarget; tryVideoFallbacks(el, v); } catch(err){ console.error('Thumbnail video error', err); } }}>
+                    <source src={v.url} type={/\.webm$/i.test(v.url) ? 'video/webm' : 'video/mp4'} />
+                  </video>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ color: "#cfeaf8", fontSize: 12, fontWeight: 700 }}>{v.title}</div>
+                  <div style={{ color: "#7a9cb0", fontSize: 11, marginTop: 6 }}>{v.url}</div>
+                  <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+                    <button onClick={() => onPlay(v.url)} style={{ ...btnStyle, padding: "6px 10px", width: 96 }}>Play</button>
+                    <a href={v.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+                      <button style={{ ...btnStyle, padding: "6px 10px", width: 96 }}>Open</button>
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     );
@@ -550,7 +585,9 @@
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
             <button onClick={onClose} style={{ ...btnStyle, width: "auto", padding: "6px 10px" }}>Close</button>
           </div>
-          <video src={src} controls autoPlay style={{ width: "100%", background: "#000" }} />
+          <video key={src} controls autoPlay playsInline preload="metadata" crossOrigin="anonymous" style={{ width: "100%", background: "#000" }} onError={e => { try { const el = e?.target || e?.currentTarget; tryVideoFallbacks(el, { url: src, title: src.split('/').pop() }); } catch(err){ console.error('Modal video error', err); } }}>
+            <source src={src} type={/\.webm$/i.test(src) ? 'video/webm' : 'video/mp4'} />
+          </video>
         </div>
       </div>
     );
@@ -670,6 +707,8 @@
   //  TOOLBAR
   // ═══════════════════════════════════════════════════════════════
   function Toolbar({ activeModel, onModelChange, onAddRoot, nodeCount }) {
+    // receive optional video navigator prop via rest args
+    const { onOpenVideos } = arguments[0] || {};
     const models = [
       { value: "all",       label: "◈ All Models" },
       { value: "xent",      label: "① Cross-Entropy" },
@@ -722,6 +761,10 @@
             ...btnStyle, width: "auto", padding: "5px 14px",
             background: "rgba(0,255,170,0.08)", borderColor: "rgba(0,255,170,0.4)", color: "#00ffaa",
           }}>+ ADD NODE</button>
+          <button onClick={() => onOpenVideos && onOpenVideos()} style={{
+            ...btnStyle, width: "auto", padding: "5px 14px",
+            background: "rgba(168,85,247,0.06)", borderColor: "rgba(168,85,247,0.28)", color: "#a855f7",
+          }}>Videos</button>
         </div>
       </div>
     );
@@ -739,6 +782,9 @@
 
     // Video player state
     const [videoSrc, setVideoSrc] = useState(null);
+    // Videos section state
+    const [showVideosSection, setShowVideosSection] = useState(false);
+    const [folderVideos, setFolderVideos] = useState([]);
 
 
     // Pan / zoom
@@ -783,6 +829,90 @@
     const visibleNodes = useMemo(() => nodes.filter(n => visibleIds.includes(n.id)), [nodes, visibleIds]);
 
     const nodesWithVideo = useMemo(() => nodes.filter(n => n.metricVideo || n.metricVideoUrl), [nodes]);
+
+    // load videos from public/videos/index.json or attempt directory listing
+    const loadFolderVideos = useCallback(async () => {
+      try {
+        const idx = await fetch("/videos/index.json");
+        if (idx.ok) {
+            const list = await idx.json();
+            // expect array of strings or objects {url, title}
+            const vids = list.map(item => {
+              if (typeof item === "string") {
+                const encoded = `/videos/${encodeURIComponent(item)}`;
+                return { url: encoded, title: item };
+              }
+              // if object, ensure url is safe
+              return { url: item.url?.startsWith("/") ? item.url : `/videos/${encodeURIComponent(item.url)}`, title: item.title ?? item.url };
+            });
+            setFolderVideos(vids);
+            return;
+          }
+      } catch (err) {
+        // ignore and try HTML fallback
+      }
+
+      try {
+        const res = await fetch("/videos/");
+        if (res.ok) {
+          const txt = await res.text();
+          // crude parse for links ending with video extensions
+          const hrefs = Array.from(txt.matchAll(/href\s*=\s*\"([^\"]+)\"/g)).map(m => m[1]);
+          const vids = hrefs.filter(h => /\.(mp4|webm|ogg)$/i.test(h)).map(h => {
+            const name = h.split("/").pop();
+            const url = h.startsWith("/") ? h : `/videos/${encodeURIComponent(name)}`;
+            return { url, title: name };
+          });
+          setFolderVideos(vids);
+          return;
+        }
+      } catch (err) {
+        // final fallback: empty
+      }
+      setFolderVideos([]);
+    }, []);
+
+    // Helper: attempt to validate a video URL (HEAD) and return boolean
+    const validateVideoUrl = useCallback(async url => {
+      try {
+        const res = await fetch(url, { method: "HEAD" });
+        return res.ok;
+      } catch (err) {
+        return false;
+      }
+    }, []);
+
+    // Try fallback strategies when a video element errors: try decoded filenames or raw title
+    const tryVideoFallbacks = useCallback(async (videoEl, v) => {
+      try {
+        const current = videoEl && (videoEl.currentSrc || videoEl.src);
+        console.error("Video failed to load:", current || v.url || v.title);
+
+        // 1) try decodeURIComponent on the filename portion
+        const parts = (v.url || v).split("/");
+        const rawName = parts[parts.length - 1];
+        let decoded;
+        try { decoded = decodeURIComponent(rawName); } catch (e) { decoded = rawName; }
+        if (decoded && decoded !== rawName) {
+          const tryUrl = `/videos/${encodeURIComponent(decoded)}`;
+          if (await validateVideoUrl(tryUrl)) { videoEl.src = tryUrl; videoEl.load(); videoEl.play().catch(()=>{}); return; }
+        }
+
+        // 2) try using the title field or rawName without encoding
+        if (v.title && v.title !== rawName) {
+          const tryUrl2 = `/videos/${encodeURIComponent(v.title)}`;
+          if (await validateVideoUrl(tryUrl2)) { videoEl.src = tryUrl2; videoEl.load(); videoEl.play().catch(()=>{}); return; }
+        }
+
+        // 3) as last resort try the un-encoded rawName path
+        const tryUrl3 = `/videos/${rawName}`;
+        if (await validateVideoUrl(tryUrl3)) { videoEl.src = tryUrl3; videoEl.load(); videoEl.play().catch(()=>{}); return; }
+
+        console.error("All fallback attempts failed for video:", v);
+      } catch (err) {
+        console.error("Fallback handler error", err);
+      }
+    }, [validateVideoUrl]);
 
     // Build edges
     const edges = useMemo(() => {
@@ -923,6 +1053,11 @@
     // Collision zone position
     const collPos = positions["collision"];
 
+    useEffect(() => {
+      // pre-load videos when section is opened
+      if (showVideosSection) loadFolderVideos();
+    }, [showVideosSection, loadFolderVideos]);
+
     return (
       <div style={{ width: "100%", height: "100%", background: "#030508", display: "flex", flexDirection: "column", fontFamily: "'JetBrains Mono', monospace", overflow: "hidden" }}>
         <Toolbar
@@ -930,6 +1065,7 @@
           onModelChange={m => { setActiveModel(m); setSelectedId(null); }}
           onAddRoot={handleAddRoot}
           nodeCount={visibleNodes.length}
+          onOpenVideos={() => setShowVideosSection(s => !s)}
         />
 
         <div ref={containerRef} style={{ flex: 1, position: "relative", overflow: "hidden" }}>
@@ -1018,6 +1154,15 @@
             <DetailsPanel
               node={selectedNode}
               onClose={() => setSelectedId(null)}
+            />
+          )}
+
+          {/* Videos Section (folder listing) */}
+          {showVideosSection && (
+            <VideosSection
+              videos={folderVideos}
+              onPlay={src => setVideoSrc(src)}
+              onClose={() => setShowVideosSection(false)}
             />
           )}
 
