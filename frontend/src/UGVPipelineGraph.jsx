@@ -29,6 +29,41 @@
     { label: "Red",               value: "#ef4444" },
   ];
 
+  const getVideoMimeType = (url = "") => {
+    const clean = String(url).split("?")[0].toLowerCase();
+    if (clean.endsWith(".webm")) return "video/webm";
+    if (clean.endsWith(".ogg") || clean.endsWith(".ogv")) return "video/ogg";
+    if (clean.endsWith(".mov")) return "video/quicktime";
+    if (clean.endsWith(".mkv")) return "video/x-matroska";
+    return "video/mp4";
+  };
+
+  const normalizeVideoUrl = (input = "") => {
+    const value = String(input || "").trim();
+    if (!value) return "";
+    if (/^https?:\/\//i.test(value) || value.startsWith("blob:")) return value;
+    const cleaned = value.replace(/^\/+/, "");
+    const encodedPath = cleaned.split("/").filter(Boolean).map(part => encodeURIComponent(part)).join("/");
+    if (cleaned.startsWith("videos/")) return `/${encodedPath}`;
+    return `/videos/${encodedPath}`;
+  };
+
+  const toBackendUrl = (input = "") => {
+    const value = String(input || "").trim();
+    if (!value) return "";
+    if (/^https?:\/\//i.test(value)) return value;
+    return `http://localhost:8000${value.startsWith("/") ? "" : "/"}${value}`;
+  };
+
+  const toConvertedPreviewUrl = (input = "") => {
+    const raw = String(input || "").trim();
+    if (!raw) return "";
+    const fileName = raw.split("/").pop() || raw;
+    const noExt = fileName.replace(/\.[^/.]+$/, "");
+    const safeBase = noExt.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_\-]/g, "");
+    return safeBase ? `/videos/converted/${safeBase}.mp4` : "";
+  };
+
   // ═══════════════════════════════════════════════════════════════
   //  INITIAL NODE DATA
   // ═══════════════════════════════════════════════════════════════
@@ -489,7 +524,7 @@
         {(node.metricVideo || node.metricVideoUrl) && (
           <div style={{ padding: 12 }}>
             <video controls preload="metadata" crossOrigin="anonymous" style={{ width: "100%", borderRadius: 4, background: "#000" }} onError={e => console.error('Video playback error', e)}>
-              <source src={node.metricVideo || node.metricVideoUrl} type={(node.metricVideo || node.metricVideoUrl).endsWith('.webm') ? 'video/webm' : 'video/mp4'} />
+              <source src={normalizeVideoUrl(node.metricVideo || node.metricVideoUrl)} type={getVideoMimeType(node.metricVideo || node.metricVideoUrl)} />
               Your browser does not support the video tag.
             </video>
           </div>
@@ -539,7 +574,7 @@
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <div style={{ width: 140, height: 80, background: "#000", borderRadius: 4, overflow: "hidden", flexShrink: 0 }}>
                   <video muted autoPlay loop playsInline preload="metadata" crossOrigin="anonymous" style={{ width: "100%", height: "100%", objectFit: "cover" }} ref={el => { /* keep ref-free */ }} onError={e => { try { const el = e?.target || e?.currentTarget; tryVideoFallbacks(el, v); } catch(err){ console.error('Thumbnail video error', err); } }}>
-                    <source src={v.url} type={/\.webm$/i.test(v.url) ? 'video/webm' : 'video/mp4'} />
+                    <source src={v.previewUrl || normalizeVideoUrl(v.url)} type={getVideoMimeType(v.previewUrl || v.url)} />
                   </video>
                 </div>
                 <div style={{ flex: 1 }}>
@@ -586,7 +621,7 @@
             <button onClick={onClose} style={{ ...btnStyle, width: "auto", padding: "6px 10px" }}>Close</button>
           </div>
           <video key={src} controls autoPlay playsInline preload="metadata" crossOrigin="anonymous" style={{ width: "100%", background: "#000" }} onError={e => { try { const el = e?.target || e?.currentTarget; tryVideoFallbacks(el, { url: src, title: src.split('/').pop() }); } catch(err){ console.error('Modal video error', err); } }}>
-            <source src={src} type={/\.webm$/i.test(src) ? 'video/webm' : 'video/mp4'} />
+            <source src={normalizeVideoUrl(src)} type={getVideoMimeType(src)} />
           </video>
         </div>
       </div>
@@ -830,8 +865,10 @@
 
     const nodesWithVideo = useMemo(() => nodes.filter(n => n.metricVideo || n.metricVideoUrl), [nodes]);
 
-    // load videos from public/videos/index.json or attempt directory listing
+    // load videos from public/videos and backend /result/videos (history)
     const loadFolderVideos = useCallback(async () => {
+      const collected = [];
+
       try {
         const idx = await fetch("/videos/index.json");
         if (idx.ok) {
@@ -839,14 +876,22 @@
             // expect array of strings or objects {url, title}
             const vids = list.map(item => {
               if (typeof item === "string") {
-                const encoded = `/videos/${encodeURIComponent(item)}`;
-                return { url: encoded, title: item };
+                const title = item.split("/").pop() || item;
+                return {
+                  url: normalizeVideoUrl(item),
+                  title,
+                  previewUrl: toConvertedPreviewUrl(title),
+                };
               }
               // if object, ensure url is safe
-              return { url: item.url?.startsWith("/") ? item.url : `/videos/${encodeURIComponent(item.url)}`, title: item.title ?? item.url };
+              const title = item.title ?? item.url;
+              return {
+                url: normalizeVideoUrl(item.url),
+                title,
+                previewUrl: toConvertedPreviewUrl(title),
+              };
             });
-            setFolderVideos(vids);
-            return;
+            collected.push(...vids);
           }
       } catch (err) {
         // ignore and try HTML fallback
@@ -860,16 +905,43 @@
           const hrefs = Array.from(txt.matchAll(/href\s*=\s*\"([^\"]+)\"/g)).map(m => m[1]);
           const vids = hrefs.filter(h => /\.(mp4|webm|ogg)$/i.test(h)).map(h => {
             const name = h.split("/").pop();
-            const url = h.startsWith("/") ? h : `/videos/${encodeURIComponent(name)}`;
-            return { url, title: name };
+            const url = h.startsWith("/") ? normalizeVideoUrl(h) : normalizeVideoUrl(name);
+            return { url, title: name, previewUrl: toConvertedPreviewUrl(name) };
           });
-          setFolderVideos(vids);
-          return;
+          collected.push(...vids);
         }
       } catch (err) {
-        // final fallback: empty
+        // ignore
       }
-      setFolderVideos([]);
+
+      try {
+        const resultRes = await fetch("http://localhost:8000/result/videos", { cache: "no-store" });
+        if (resultRes.ok) {
+          const payload = await resultRes.json();
+          const backendVideos = Array.isArray(payload?.videos) ? payload.videos : [];
+          const vids = backendVideos.map(item => {
+            const title = item.filename || item.url || "processed_video.mp4";
+            return {
+              url: toBackendUrl(item.url || `/results/${item.filename}`),
+              title,
+              previewUrl: "",
+            };
+          });
+          collected.push(...vids);
+        }
+      } catch (err) {
+        // backend unavailable; keep public videos only
+      }
+
+      const deduped = [];
+      const seen = new Set();
+      for (const video of collected) {
+        const key = String(video.url || "");
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        deduped.push(video);
+      }
+      setFolderVideos(deduped);
     }, []);
 
     // Helper: attempt to validate a video URL (HEAD) and return boolean
@@ -888,25 +960,55 @@
         const current = videoEl && (videoEl.currentSrc || videoEl.src);
         console.error("Video failed to load:", current || v.url || v.title);
 
+        const candidates = [];
+        if (v?.previewUrl) candidates.push(v.previewUrl);
+        if (v?.url) candidates.push(v.url);
+        if (v?.title) candidates.push(v.title);
+
         // 1) try decodeURIComponent on the filename portion
         const parts = (v.url || v).split("/");
         const rawName = parts[parts.length - 1];
         let decoded;
         try { decoded = decodeURIComponent(rawName); } catch (e) { decoded = rawName; }
         if (decoded && decoded !== rawName) {
-          const tryUrl = `/videos/${encodeURIComponent(decoded)}`;
-          if (await validateVideoUrl(tryUrl)) { videoEl.src = tryUrl; videoEl.load(); videoEl.play().catch(()=>{}); return; }
+          candidates.push(decoded);
         }
 
         // 2) try using the title field or rawName without encoding
         if (v.title && v.title !== rawName) {
-          const tryUrl2 = `/videos/${encodeURIComponent(v.title)}`;
-          if (await validateVideoUrl(tryUrl2)) { videoEl.src = tryUrl2; videoEl.load(); videoEl.play().catch(()=>{}); return; }
+          candidates.push(v.title);
         }
 
         // 3) as last resort try the un-encoded rawName path
-        const tryUrl3 = `/videos/${rawName}`;
-        if (await validateVideoUrl(tryUrl3)) { videoEl.src = tryUrl3; videoEl.load(); videoEl.play().catch(()=>{}); return; }
+        candidates.push(rawName);
+        candidates.push(toConvertedPreviewUrl(rawName));
+
+        const normalizedCandidates = [];
+        for (const item of candidates) {
+          const str = String(item || "").trim();
+          if (!str) continue;
+          normalizedCandidates.push(str);
+          normalizedCandidates.push(normalizeVideoUrl(str));
+          normalizedCandidates.push(toBackendUrl(str));
+          normalizedCandidates.push(toConvertedPreviewUrl(str));
+        }
+
+        const unique = [];
+        const seen = new Set();
+        for (const url of normalizedCandidates) {
+          if (!url || seen.has(url)) continue;
+          seen.add(url);
+          unique.push(url);
+        }
+
+        for (const tryUrl of unique) {
+          if (await validateVideoUrl(tryUrl)) {
+            videoEl.src = tryUrl;
+            videoEl.load();
+            videoEl.play().catch(() => {});
+            return;
+          }
+        }
 
         console.error("All fallback attempts failed for video:", v);
       } catch (err) {
