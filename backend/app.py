@@ -380,27 +380,30 @@ def run_final_model_script(input_path: str, output_path: str, job_id: str = None
         "--output",
         output_abs,
     ]
+    print(f"[FINAL] Launching subprocess: {' '.join(cmd)}")
 
     try:
         # Stream stdout to parse frame progress in real-time
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
             cwd=str(BASE_DIR)
         )
 
         stdout_lines = []
-        stderr_lines = []
         
         # Read stdout line by line and parse frame progress
         while True:
             line = process.stdout.readline()
-            if not line:
+            if line == "" and process.poll() is not None:
                 break
+            if not line:
+                continue
             stdout_lines.append(line)
+            print(line, end="")
             
             # Parse "Frame X/Y (Z%)" progress lines
             match = re.search(r'Frame\s+(\d+)/(\d+)\s+\((\d+)%\)', line)
@@ -419,14 +422,9 @@ def run_final_model_script(input_path: str, output_path: str, job_id: str = None
         # Wait for process to complete
         process.wait()
         
-        # Capture any stderr
-        if process.stderr:
-            stderr_lines = process.stderr.readlines()
-
         if process.returncode != 0:
-            stderr_text = ''.join(stderr_lines)
             stdout_text = ''.join(stdout_lines)
-            tail = (stderr_text or stdout_text or "Unknown error")[-1200:]
+            tail = (stdout_text or "Unknown error")[-1200:]
             return False, tail
         return True, "ok"
     except Exception as exc:
@@ -438,5 +436,94 @@ async def predict_video_final(
     file: UploadFile = File(...),
     request_id: str | None = Header(default=None, alias="X-Request-ID")
 ):
-    """Same as default for now - unified pipeline"""
-    return await predict_video(file, request_id)
+    """
+    Processes video using the router-based test_segmentation.py subprocess.
+    Uses SegFormer + DINO with gradient-based model selection.
+    """
+    RESULT_FOLDER = "result"
+    os.makedirs(RESULT_FOLDER, exist_ok=True)
+
+    job_id = request_id or uuid.uuid4().hex
+    print(f"[FINAL] Request received: job_id={job_id}, filename={file.filename}")
+    JOB_PROGRESS[job_id] = {
+        "request_id": job_id,
+        "status": "upload_received",
+        "frame": 0,
+        "total_frames": 0,
+        "percent": 0,
+        "message": "Upload received"
+    }
+
+    # Save uploaded video temporarily
+    temp_input_path = f"temp_{uuid.uuid4().hex}.mp4"
+    with open(temp_input_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    try:
+        uploaded_size = os.path.getsize(temp_input_path)
+        print(f"[FINAL] Upload saved: {temp_input_path} ({uploaded_size} bytes)")
+    except OSError:
+        print(f"[FINAL] Upload saved: {temp_input_path}")
+
+    # Output path in 'result' folder
+    temp_output_path = os.path.join(RESULT_FOLDER, f"segmented_{uuid.uuid4().hex}.mp4")
+    browser_output_path = os.path.join(RESULT_FOLDER, f"segmented_browser_{uuid.uuid4().hex}.mp4")
+
+    try:
+        JOB_PROGRESS[job_id].update({
+            "status": "processing",
+            "message": "Starting router-based processing"
+        })
+
+        # Run the subprocess-based router model
+        success, message = run_final_model_script(temp_input_path, temp_output_path, job_id)
+
+        if not success:
+            raise HTTPException(status_code=500, detail=f"Router processing failed: {message}")
+
+        if not os.path.exists(temp_output_path) or os.path.getsize(temp_output_path) == 0:
+            raise HTTPException(status_code=500, detail="Output video not generated")
+
+        # Transcode for browser compatibility (best effort)
+        JOB_PROGRESS[job_id].update({
+            "status": "transcoding",
+            "message": "Transcoding for browser playback"
+        })
+
+        transcode_ok, transcode_msg = transcode_to_browser_mp4(temp_output_path, browser_output_path)
+        if transcode_ok and os.path.exists(browser_output_path):
+            final_path = browser_output_path
+            try:
+                os.remove(temp_output_path)
+            except OSError:
+                pass
+        else:
+            print(f"⚠ Browser transcode skipped in /predict/video/final: {transcode_msg}")
+            final_path = temp_output_path
+
+        JOB_PROGRESS[job_id].update({
+            "status": "completed",
+            "percent": 100,
+            "message": "Processing complete"
+        })
+
+        return FileResponse(
+            final_path,
+            media_type="video/mp4",
+            headers={"X-Request-ID": job_id}
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        JOB_PROGRESS[job_id].update({
+            "status": "error",
+            "message": str(e)
+        })
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Cleanup temp input
+        if os.path.exists(temp_input_path):
+            try:
+                os.remove(temp_input_path)
+            except:
+                pass

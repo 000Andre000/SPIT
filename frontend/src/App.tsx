@@ -4,6 +4,7 @@ import UGVPipelineGraph from './UGVPipelineGraph'
 
 function App() {
   const [endpoint, setEndpoint] = useState('http://localhost:8000/predict/video')
+  const [finalEndpoint, setFinalEndpoint] = useState('')
   const [runModel, setRunModel] = useState<'default' | 'final'>('default')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [uploadedPreviewUrl, setUploadedPreviewUrl] = useState<string | null>(null)
@@ -79,9 +80,23 @@ function App() {
   const sendFile = async () => {
     if (!selectedFile || isProcessing) return
 
-    const resolvedEndpoint = runModel === 'final' 
-      ? 'http://localhost:8000/predict/video/final'
-      : 'http://localhost:8000/predict/video'
+    const normalizedEndpoint = endpoint.trim() || 'http://localhost:8000/predict/video'
+    const normalizedFinalEndpoint = finalEndpoint.trim()
+
+    const resolvedEndpoint = (() => {
+      if (runModel === 'final') {
+        const base = normalizedFinalEndpoint || normalizedEndpoint
+        if (base.endsWith('/predict/video/final')) return base
+        if (base.endsWith('/predict/video')) return `${base}/final`
+        return `${base.replace(/\/+$/, '')}/predict/video/final`
+      }
+
+      if (normalizedEndpoint.endsWith('/predict/video/final')) {
+        return normalizedEndpoint.replace(/\/final$/, '')
+      }
+      if (normalizedEndpoint.endsWith('/predict/video')) return normalizedEndpoint
+      return `${normalizedEndpoint.replace(/\/+$/, '')}/predict/video`
+    })()
 
     const requestId = (window.crypto && 'randomUUID' in window.crypto)
       ? window.crypto.randomUUID()
@@ -325,6 +340,16 @@ function App() {
               value={endpoint}
               onChange={(event) => setEndpoint(event.target.value)}
               placeholder="http://localhost:8000/predict/video"
+            />
+          </div>
+
+          <div className="control-row">
+            <label htmlFor="final-endpoint">Final API Endpoint (optional)</label>
+            <input
+              id="final-endpoint"
+              value={finalEndpoint}
+              onChange={(event) => setFinalEndpoint(event.target.value)}
+              placeholder="http://localhost:8001/predict/video/final"
             />
           </div>
 

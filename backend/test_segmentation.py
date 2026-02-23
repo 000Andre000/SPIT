@@ -98,21 +98,25 @@ class MultiScaleSegHead(nn.Module):
             nn.GELU(),
         )
 
-        def up_block(in_ch, out_ch):
+        # Double-conv upsampling blocks to match checkpoint structure
+        # Each block: Upsample -> Conv -> GN -> GELU -> Conv -> GN -> GELU
+        def double_conv_up_block(in_ch, out_ch):
             return nn.Sequential(
                 nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
                 nn.Conv2d(in_ch, out_ch, 3, padding=1),
                 nn.GroupNorm(16, out_ch),
                 nn.GELU(),
+                nn.Conv2d(out_ch, out_ch, 3, padding=1),
+                nn.GroupNorm(16, out_ch),
+                nn.GELU(),
             )
 
-        self.decoder = nn.Sequential(
-            up_block(hidden, hidden),
-            up_block(hidden, hidden // 2),
-            up_block(hidden // 2, hidden // 4),
-        )
+        # Checkpoint structure: 256 -> 128 -> 64 -> 32
+        self.up1 = double_conv_up_block(hidden, hidden // 2)      # 256 -> 128
+        self.up2 = double_conv_up_block(hidden // 2, hidden // 4) # 128 -> 64
+        self.up3 = double_conv_up_block(hidden // 4, hidden // 8) # 64 -> 32
 
-        self.classifier = nn.Conv2d(hidden // 4, out_channels, 1)
+        self.classifier = nn.Conv2d(hidden // 8, out_channels, 1)  # 32 -> 10
 
     def forward(self, multi_scale_feats):
         B = multi_scale_feats[0].size(0)
@@ -127,7 +131,9 @@ class MultiScaleSegHead(nn.Module):
 
         x = torch.stack(fused, dim=0).mean(dim=0)
         x = self.fusion(x)
-        x = self.decoder(x)
+        x = self.up1(x)
+        x = self.up2(x)
+        x = self.up3(x)
         return self.classifier(x)
 
 
@@ -164,10 +170,23 @@ def load_dino(device):
     ms_dino.eval().to(device)
 
     ckpt = torch.load(str(DINO_HEAD_CKPT), map_location=device, weights_only=False)
-    embed_dim = ckpt["projections.0.0.weight"].shape[1]
+    
+    # Handle wrapped checkpoint structure (epoch, classifier, backbone_partial, val_iou)
+    if "classifier" in ckpt and isinstance(ckpt["classifier"], dict):
+        classifier_state = ckpt["classifier"]
+    else:
+        classifier_state = ckpt
+    
+    # Determine embed_dim from the first projection layer
+    if "projections.0.0.weight" in classifier_state:
+        embed_dim = classifier_state["projections.0.0.weight"].shape[1]
+    else:
+        # Fallback: assume standard vitl14 embed_dim
+        embed_dim = 1024
+        print(f"[Warning] Could not find projections in checkpoint, using default embed_dim={embed_dim}")
     
     head = MultiScaleSegHead(in_channels=embed_dim, num_scales=4, out_channels=N_CLASSES)
-    head.load_state_dict(ckpt)
+    head.load_state_dict(classifier_state, strict=False)
     head.eval().to(device)
     
     return ms_dino, head
